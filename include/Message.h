@@ -14,7 +14,7 @@ typedef struct mensagem{
 	uint8_t const stx = 0x55;
 	uint8_t *payload;
 	uint16_t checksum;
-}
+} Message;
 
 
 enum MessageTypes
@@ -22,7 +22,7 @@ enum MessageTypes
     /*
      * Set commands
      */
-        SET_PLATFORM_NAME = 0x0002,
+    SET_PLATFORM_NAME = 0x0002,
     SET_PLATFORM_TIME = 0x0005,
     SET_SAFETY_SYSTEM = 0x0010,
     SET_DIFF_WHEEL_SPEEDS = 0x0200,
@@ -42,7 +42,7 @@ enum MessageTypes
     /*
      * Command commands
      */
-        CMD_PROCESSOR_RESET = 0x2000,
+    CMD_PROCESSOR_RESET = 0x2000,
     CMD_RESTORE_SETTINGS = 0x2001,
     CMD_STORE_SETTINGS = 0x2002,
 
