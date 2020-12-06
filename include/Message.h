@@ -3,7 +3,7 @@
 
 #define 
 
-typedef struct mensagem{
+typedef struct {
 	uint8_t const soh = 0xAA;
 	uint8_t length;
 	uint8_t lengthCompliment;
@@ -16,6 +16,12 @@ typedef struct mensagem{
 	uint16_t checksum;
 } Message;
 
+typedef struct {
+	uint8_t length;
+	uint16_t dataType;
+	uint8_t *payload;
+} DataRespost;
+	
 
 enum MessageTypes
   {
