@@ -2,7 +2,7 @@
 #include <stdint.h>
 
 
-Message setMessage(uint8_t *payload, uint8_t length, uint16_t messageType, uint32_t timeStamp, uint8_t flags) {
+Message* setMessage(uint8_t *payload, uint8_t length, uint16_t messageType, uint32_t timeStamp, uint8_t flags) {
 	Message nova;
 	nova.length = length;
 	nova.lengthCompliment = 0xFF - length;
@@ -10,11 +10,23 @@ Message setMessage(uint8_t *payload, uint8_t length, uint16_t messageType, uint3
 	nova.flags = flags;
 	nova.messageType = messageType;
 	nova.(*payload) = *payload;
-	nova.checksum = getChecksum(nova);
+	nova.checksum = getChecksum(&nova);
+	
+	return &nova;
 }
 
+
+//critical
 uint16_t getChecksum(Message nova) {
-	uint8_t data[nova.length + 12];
+	uint8_t *data = malloc((nova.length+12) * sizeof(uint8_t));
+	MessageSerialize(data, nova);
+
+	uint16_t checksum = crc16(16, 0xFFFF, data);
+	free(data);
+	return checksum;
+}
+
+void MessageSerialize(uint8_t *data, Message nova) {
 	data[0] = nova.soh;
 	data[1] = nova.length;
 	data[2] = nova.lenghtCompliment;
@@ -31,7 +43,11 @@ uint16_t getChecksum(Message nova) {
 	for (int i = 12; i < 12 + nova.length ; i++) {
 		data[i] = nova.payload[i-12];
 	}
-
-	return crc16(16, 0xFFFF, data);
-
+	
 }
+
+
+
+
+
+
