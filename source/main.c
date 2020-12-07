@@ -187,7 +187,7 @@ void main( void )
 static void prvSerialSender( void *pvParameters )
 {
 TickType_t xNextWakeTime;
-const unsigned long ulValueToSend = 100UL;
+Message xToSend = NULL;
 
 	/* Check the task parameter is as expected. */
 	configASSERT( ( ( unsigned long ) pvParameters ) == mainQUEUE_SEND_PARAMETER );
@@ -197,17 +197,17 @@ const unsigned long ulValueToSend = 100UL;
 
 	for( ;; )
 	{
-		/* Place this task in the blocked state until it is time to run again.
-		The block time is specified in ticks, the constant used converts ticks
-		to ms.  While in the Blocked state this task will not consume any CPU
-		time. */
+		/* Wait inicial para esperar que apareça alguma mensagem */
 		vTaskDelayUntil( &xNextWakeTime, mainQUEUE_SEND_FREQUENCY_MS );
 
-		/* Send to the queue - causing the queue receive task to unblock and
-		toggle the LED.  0 is used as the block time so the sending operation
-		will not block - it shouldn't need to block as the queue should always
-		be empty at this point in the code. */
-		xQueueSend( xQueue, &ulValueToSend, 0U );
+
+		xQueueReceive(xSendMessage, &( xToSend ), 0);
+		if (xToSend != NULL) {
+			// rotina para enviar o dado
+			
+		}
+		
+		
 	}
 }
 /*-----------------------------------------------------------*/
