@@ -12,15 +12,11 @@ typedef struct {
 	uint8_t flags;
 	uint16_t messageType;
 	uint8_t const stx = 0x55;
-	uint8_t *payload;
+	uint8_t payload[64]; // coloquei um valor fixo que seria um valor máximo para ser utilizado, pois o malloc nao funciona bem no pic32
 	uint16_t checksum;
 } Message;
 
-typedef struct {
-	uint8_t length;
-	uint16_t dataType;
-	uint8_t *payload;
-} DataRespost;
+// tem que colocar a header das funções aqui ainda
 	
 
 enum MessageTypes

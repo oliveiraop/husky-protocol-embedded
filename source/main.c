@@ -90,7 +90,7 @@ to ticks using the portTICK_PERIOD_MS constant. */
 /* The number of items the queue can hold.  This is 1 as the receive task
 will remove items as they are added, meaning the send task should always find
 the queue empty. */
-#define mainQUEUE_LENGTH					( 1 )
+#define mainQUEUE_LENGTH					( 10 )
 
 /* Values passed to the two tasks just to check the task parameter
 functionality. */
@@ -107,6 +107,10 @@ converted to ticks using the portTICK_PERIOD_MS constant. */
 
 /* Misc. */
 #define mainDONT_BLOCK						( 0 )
+
+/* Mascara de bit unitario */
+#define mainBIT_ONE_MASK					0x00000001
+
 
 /*-----------------------------------------------------------*/
 
@@ -132,6 +136,7 @@ void main( void );
 
 /* The queue used by both tasks. */
 static QueueHandle_t xSendMessage = NULL;
+static QueueHandle_t xAck = NULL;
 static SemaphoreHandle_t xSerial = NULL;
 
 /*-----------------------------------------------------------*/
@@ -141,6 +146,7 @@ void main( void )
 	TimerHandle_t xTimer;
 
 	/* Create the queue. */
+	xSendMessage = xQueueCreate( mainQUEUE_LENGTH, sizeof( Message ) );
 	xSendMessage = xQueueCreate( mainQUEUE_LENGTH, sizeof( Message ) );
 	xSerial = xSemaphoreCreateMutex( void );
 
@@ -188,6 +194,7 @@ static void prvSerialSender( void *pvParameters )
 {
 TickType_t xNextWakeTime;
 Message xToSend = NULL;
+uint16_t = xAckResponse;
 
 	/* Check the task parameter is as expected. */
 	configASSERT( ( ( unsigned long ) pvParameters ) == mainQUEUE_SEND_PARAMETER );
@@ -200,12 +207,66 @@ Message xToSend = NULL;
 		/* Wait inicial para esperar que apareÃ§a alguma mensagem */
 		vTaskDelayUntil( &xNextWakeTime, mainQUEUE_SEND_FREQUENCY_MS );
 
-
+		xToSend = NULL;
 		xQueueReceive(xSendMessage, &( xToSend ), 0);
+		
 		if (xToSend != NULL) {
 			// rotina para enviar o dado
+			// PEGA MUTEX SE NECESSARIO AQUI
+			
+			// Adicionar os valores nessa mesma ordem dentro das funções de envio para porta serial
+			xToSend.soh;
+			xToSend.length;
+			xToSend.lenghtCompliment;
+			xToSend.version;
+			(uint8_t)xToSend.timeStamp;	
+			(uint8_t)(xToSend.timeStamp >> 8);
+			(uint8_t)(xToSend.timeStamp >> 16);
+			(uint8_t)(xToSend.timeStamp >> 24);
+			xToSend.flags;
+			(uint8_t)xToSend.messageType;
+			(uint8_t)(xToSend.messageType >> 8);
+			xToSend.stx;
+		
+			for (int i = 0; i < xToSend.length ; i++) {
+				xToSend.payload[i];
+			}
+			(uint8_t)(xToSend.checksum >> 8);
+			(uint8_t)xToSend.checksum;
+			
+			// Entrega mutex de volta, mensagem enviada
+			// Aguarda ack
+			
+			xQueueReceive(xAck, &( xAckResponse ), 30);
+			
+			// decodifica ack
+			// Fazer ação para cada um desses caras 
+			//(podemos dar um jeito de fazer um log pra poder verificar se isso está funcionando, ou ligar leds)
+			if (xAckResponse && mainBIT_ONDE_MASK) {
+				// Bad checksum -- Reenvia o dado
+			}
+			if ((xAckResponse >> 1) && mainBIT_ONDE_MASK) {
+				//Type not supported -- Verificar o que foi enviado
+			}
+			if ((xAckResponse >> 2) && mainBIT_ONDE_MASK) {
+				// Bad format -- Verificar o que foi enviado
+			}
+			if ((xAckResponse >> 3) && mainBIT_ONDE_MASK) {
+				// Out of Range
+			}
+			if ((xAckResponse >> 4) && mainBIT_ONDE_MASK) {
+				// No bandwidth
+			}
+			if ((xAckResponse >> 5) && mainBIT_ONDE_MASK) {
+				// Frequency too high
+			}
+			if ((xAckResponse >> 6) && mainBIT_ONDE_MASK) {
+				// Too many message types
+			}
+			
 			
 		}
+		
 		
 		
 	}
@@ -215,24 +276,44 @@ Message xToSend = NULL;
 static void prvSerialReceiver( void *pvParameters )
 {
 unsigned long ulReceivedValue;
+Message xMessageReceived;
+uint8_t xCharReceived;
+uint16_t xTesteChecksum;
 
 	/* Check the task parameter is as expected. */
 	configASSERT( ( ( unsigned long ) pvParameters ) == mainQUEUE_RECEIVE_PARAMETER );
 
 	for( ;; )
 	{
-		/* Wait until something arrives in the queue - this task will block
-		indefinitely provided INCLUDE_vTaskSuspend is set to 1 in
-		FreeRTOSConfig.h. */
-		xQueueReceive( xQueue, &ulReceivedValue, portMAX_DELAY );
-
-		/*  To get here something must have been received from the queue, but
-		is it the expected value?  If it is, toggle the LED. */
-		if( ulReceivedValue == 100UL )
-		{
-			vParTestToggleLED( mainTASKS_LED );
-			ulReceivedValue = 0U;
+		//xSerialGetChar
+		//Receber o char
+		
+		if (xMessageReceived.soh == xCharReceived) {
+			//xSerialGetChar
+			xMessageReceived.length = xCharReceived;
+			xMessageReceived.lengthCompliment = xCharReceived;
+			// Testa o complemento
+			if (xMessageReceived.length + xMessageReceived.lengthCompliment = 0xFFFF){
+				//xSerialGetChar
+				if (xMessageReceived.version == xCharReceived) {
+					// timestamp
+					//flags
+					//messageType (talvez pode ser colocado aqui o que vai ser feito por causa do ack, ou ficar de tarefa pra outra task)
+					// stx
+					if(xMessageReceived.stx == xCharReceived){
+						//receber payload definido na length (um for mesmo)
+						// Depois receber checksum e usar função para testar com os dados que já tem
+						xTesteChecksum = getChecksum(xMessageReceived);
+						if (xTesteChecksum == xMessageReceived.checksum) {
+							// Finaliza parser e envia a mensagem para ser utilizada em outra fila de task
+						}
+					}
+				}
+			}
 		}
+		
+		
+		
 	}
 }
 /*-----------------------------------------------------------*/
