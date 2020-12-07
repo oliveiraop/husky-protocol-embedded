@@ -145,9 +145,9 @@ void main( void )
 {
 	TimerHandle_t xTimer;
 
-	/* Create the queue. */
+	/* Criar estruturas */
 	xSendMessage = xQueueCreate( mainQUEUE_LENGTH, sizeof( Message ) );
-	xSendMessage = xQueueCreate( mainQUEUE_LENGTH, sizeof( Message ) );
+	xAck = xQueueCreate( mainQUEUE_LENGTH, sizeof( Message ) );
 	xSerial = xSemaphoreCreateMutex( void );
 
 	if( xSendMessage != NULL )
@@ -306,6 +306,13 @@ uint16_t xTesteChecksum;
 						xTesteChecksum = getChecksum(xMessageReceived);
 						if (xTesteChecksum == xMessageReceived.checksum) {
 							// Finaliza parser e envia a mensagem para ser utilizada em outra fila de task
+							if (xMessageReceived.messageType < 0x8000) {
+								// isso é um ack, colocar na fila de ack
+								xQueueSend(xAck, (void) &xMessageReceived, 0 ); // enviar pra fila de Ack
+							} else {
+								//Se não for vai ser um dado que pode ser colocado em uma fila para ser utilizado por outra task
+							}
+							
 						} // checksum deu falha aqui;
 					} // else aqui caso o stx venha diferente do esperado
 				} // else aqui de erro caso a versao esteja incorreta
