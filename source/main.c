@@ -109,7 +109,7 @@ converted to ticks using the portTICK_PERIOD_MS constant. */
 #define mainDONT_BLOCK						( 0 )
 
 /* Mascara de bit unitario */
-#define mainBIT_ONE_MASK					0x00000001
+#define mainFIRST_BIT_MASK					0x00000001
 
 
 /*-----------------------------------------------------------*/
@@ -242,25 +242,25 @@ uint16_t = xAckResponse;
 			// decodifica ack
 			// Fazer ação para cada um desses caras 
 			//(podemos dar um jeito de fazer um log pra poder verificar se isso está funcionando, ou ligar leds)
-			if (xAckResponse && mainBIT_ONDE_MASK) {
+			if (xAckResponse && mainFIRST_BIT_MASK) {
 				// Bad checksum -- Reenvia o dado
 			}
-			if ((xAckResponse >> 1) && mainBIT_ONDE_MASK) {
+			if ((xAckResponse >> 1) && mainFIRST_BIT_MASK) {
 				//Type not supported -- Verificar o que foi enviado
 			}
-			if ((xAckResponse >> 2) && mainBIT_ONDE_MASK) {
+			if ((xAckResponse >> 2) && mainFIRST_BIT_MASK) {
 				// Bad format -- Verificar o que foi enviado
 			}
-			if ((xAckResponse >> 3) && mainBIT_ONDE_MASK) {
+			if ((xAckResponse >> 3) && mainFIRST_BIT_MASK) {
 				// Out of Range
 			}
-			if ((xAckResponse >> 4) && mainBIT_ONDE_MASK) {
+			if ((xAckResponse >> 4) && mainFIRST_BIT_MASK) {
 				// No bandwidth
 			}
-			if ((xAckResponse >> 5) && mainBIT_ONDE_MASK) {
+			if ((xAckResponse >> 5) && mainFIRST_BIT_MASK) {
 				// Frequency too high
 			}
-			if ((xAckResponse >> 6) && mainBIT_ONDE_MASK) {
+			if ((xAckResponse >> 6) && mainFIRST_BIT_MASK) {
 				// Too many message types
 			}
 			
@@ -306,10 +306,10 @@ uint16_t xTesteChecksum;
 						xTesteChecksum = getChecksum(xMessageReceived);
 						if (xTesteChecksum == xMessageReceived.checksum) {
 							// Finaliza parser e envia a mensagem para ser utilizada em outra fila de task
-						}
-					}
-				}
-			}
+						} // checksum deu falha aqui;
+					} // else aqui caso o stx venha diferente do esperado
+				} // else aqui de erro caso a versao esteja incorreta
+			} // else aqui caso o tamanho esteja incorreto
 		}
 		
 		
