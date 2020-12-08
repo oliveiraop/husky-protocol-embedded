@@ -12,7 +12,7 @@ Consiste de arquivos incluídos e modificados do Demo PIC32MX_MPLAB, que acompan
 
 ## Instalação
 
-Os arquivos das pastas `source/` e `include/` devem ser copiados para a pasta `Demon/PIC32MX_MPLAB/` do FreeRTOS, substituindo quaisquer arquivos em conflito, e o projeto executado pelo MPLAB.
+Os arquivos da pasta `source/` devem ser copiados para a pasta `Demon/PIC32MX_MPLAB/` do FreeRTOS, substituindo quaisquer arquivos em conflito. O projeto deve ser executado e compilado pelo MPLAB X e MPLAB XC32.
 
 ## Referências
 
