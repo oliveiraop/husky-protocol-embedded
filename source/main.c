@@ -26,310 +26,179 @@
  */
 
 /******************************************************************************
- * NOTE 1:  This project provides two demo applications.  A simple blinky style
- * project, and a more comprehensive test and demo application.  The
- * mainCREATE_SIMPLE_BLINKY_DEMO_ONLY setting in main.c is used to select
- * between the two.  See the notes on using mainCREATE_SIMPLE_BLINKY_DEMO_ONLY
- * in main.c.  This file implements the simply blinky style version.
+ * This project provides two demo applications.  A simple blinky style project,
+ * and a more comprehensive test and demo application.  The
+ * mainCREATE_SIMPLE_BLINKY_DEMO_ONLY setting (defined in this file) is used to
+ * select between the two.  The simply blinky demo is implemented and described
+ * in main_blinky.c.  The more comprehensive test and demo application is
+ * implemented and described in main_full.c.
  *
- * NOTE 2:  This file only contains the source code that is specific to the
- * basic demo.  Generic functions, such FreeRTOS hook functions, and functions
- * required to configure the hardware, are defined in main.c.
- ******************************************************************************
- *
- * main_blinky() creates one queue, two tasks, and one software timer.  It then
- * starts the scheduler.
- *
- * The Blinky Software Timer:
- * This demonstrates an auto-reload software timer.  The timer callback function
- * does nothing but toggle an LED.
- *
- * The Queue Send Task:
- * The queue send task is implemented by the prvQueueSendTask() function in
- * this file.  prvQueueSendTask() sits in a loop that causes it to repeatedly
- * block for 200 milliseconds, before sending the value 100 to the queue that
- * was created within main_blinky().  Once the value is sent, the task loops
- * back around to block for another 200 milliseconds.
- *
- * The Queue Receive Task:
- * The queue receive task is implemented by the prvQueueReceiveTask() function
- * in this file.  prvQueueReceiveTask() sits in a loop where it repeatedly
- * blocks on attempts to read data from the queue that was created within
- * main_blinky().  When data is received, the task checks the value of the
- * data, and if the value equals the expected 100, toggles the LED.  The 'block
- * time' parameter passed to the queue receive function specifies that the
- * task should be held in the Blocked state indefinitely to wait for data to
- * be available on the queue.  The queue receive task will only leave the
- * Blocked state when the queue send task writes to the queue.  As the queue
- * send task writes to the queue every 200 milliseconds, the queue receive
- * task leaves the Blocked state every 200 milliseconds, and therefore toggles
- * the LED every 200 milliseconds.
+ * This file implements the code that is not demo specific, including the
+ * hardware setup and FreeRTOS hook functions.
  */
-
-/* Standard includes. */
-#include <stdio.h>
-#include "Message.h"
 
 /* Kernel includes. */
 #include "FreeRTOS.h"
 #include "task.h"
-#include "queue.h"
-#include "timers.h"
 
 /* Standard demo includes. */
 #include "partest.h"
 
-/* Priorities at which the tasks are created. */
-#define mainQUEUE_RECEIVE_TASK_PRIORITY		( tskIDLE_PRIORITY + 2 )
-#define	mainQUEUE_SEND_TASK_PRIORITY		( tskIDLE_PRIORITY + 1 )
+/* Hardware specific includes. */
+#include "ConfigPerformance.h"
 
-/* The rate at which data is sent to the queue.  The 200ms value is converted
-to ticks using the portTICK_PERIOD_MS constant. */
-#define mainQUEUE_SEND_FREQUENCY_MS			( 200 / portTICK_PERIOD_MS )
+/* Core configuratin fuse settings */
+#pragma config FPLLMUL = MUL_20, FPLLIDIV = DIV_2, FPLLODIV = DIV_1, FWDTEN = OFF
+#pragma config POSCMOD = HS, FNOSC = PRIPLL, FPBDIV = DIV_2
+#pragma config CP = OFF, BWP = OFF, PWP = OFF
 
-/* The number of items the queue can hold.  This is 1 as the receive task
-will remove items as they are added, meaning the send task should always find
-the queue empty. */
-#define mainQUEUE_LENGTH					( 10 )
+/* Additional config fuse settings for other supported processors */
+#if defined(__32MX460F512L__)
+	#pragma config UPLLEN = OFF
+#elif defined(__32MX795F512L__)
+	#pragma config UPLLEN = OFF
+	#pragma config FSRSSEL = PRIORITY_7
+#endif
 
-/* Values passed to the two tasks just to check the task parameter
-functionality. */
-#define mainQUEUE_SEND_PARAMETER			( 0x1111UL )
-#define mainQUEUE_RECEIVE_PARAMETER			( 0x22UL )
+/*-----------------------------------------------------------*/
 
-/* The period of the blinky software timer.  The period is specified in ms and
-converted to ticks using the portTICK_PERIOD_MS constant. */
-#define mainBLINKY_TIMER_PERIOD				( 50 / portTICK_PERIOD_MS )
-
-/* The LED used by the communicating tasks and the blinky timer respectively. */
-#define mainTASKS_LED						( 0 )
-#define mainTIMER_LED						( 1 )
-
-/* Misc. */
-#define mainDONT_BLOCK						( 0 )
-
-/* Mascara de bit unitario */
-#define mainFIRST_BIT_MASK					0x00000001
-
+/* Set mainCREATE_SIMPLE_BLINKY_DEMO_ONLY to one to run the simple blinky demo,
+or 0 to run the more comprehensive test and demo application. */
+#define mainCREATE_SIMPLE_BLINKY_DEMO_ONLY	1
 
 /*-----------------------------------------------------------*/
 
 /*
- * The tasks as described in the comments at the top of this file.
+ * Set up the hardware ready to run this demo.
  */
-static void prvQueueReceiveTask( void *pvParameters );
-static void prvQueueSendTask( void *pvParameters );
+static void prvSetupHardware( void );
 
 /*
- * The callback function for the blinky software timer, as described at the top
- * of this file.
+ * main_blinky() is used when mainCREATE_SIMPLE_BLINKY_DEMO_ONLY is set to 1.
+ * main_full() is used when mainCREATE_SIMPLE_BLINKY_DEMO_ONLY is set to 0.
  */
-static void prvBlinkyTimerCallback( TimerHandle_t xTimer );
-
-/*
- * Called by main() to create the simply blinky style application if
- * mainCREATE_SIMPLE_BLINKY_DEMO_ONLY is set to 1.
- */
-void main( void );
+extern void main_blinky( void );
+extern void main_full( void );
 
 /*-----------------------------------------------------------*/
 
-/* The queue used by both tasks. */
-static QueueHandle_t xSendMessage = NULL;
-static QueueHandle_t xAck = NULL;
-static SemaphoreHandle_t xSerial = NULL;
-
-/*-----------------------------------------------------------*/
-
-void main( void )
+/*
+ * Create the demo tasks then start the scheduler.
+ */
+int main( void )
 {
-	TimerHandle_t xTimer;
+	/* Prepare the hardware to run this demo. */
+	prvSetupHardware();
 
-	/* Criar estruturas */
-	xSendMessage = xQueueCreate( mainQUEUE_LENGTH, sizeof( Message ) );
-	xAck = xQueueCreate( mainQUEUE_LENGTH, sizeof( Message ) );
-	xSerial = xSemaphoreCreateMutex( void );
-
-	if( xSendMessage != NULL )
+	/* The mainCREATE_SIMPLE_BLINKY_DEMO_ONLY setting is described at the top
+	of this file. */
+	#if mainCREATE_SIMPLE_BLINKY_DEMO_ONLY == 1
 	{
-		/* Create the two tasks as described in the comments at the top of this
-		file. */
-		xTaskCreate( prvSerialReceiver,					/* The function that implements the task. */
-					"Rx", 									/* The text name assigned to the task - for debug only as it is not used by the kernel. */
-					configMINIMAL_STACK_SIZE, 				/* The size of the stack to allocate to the task. */
-					( void * ) mainQUEUE_RECEIVE_PARAMETER, /* The parameter passed to the task - just to check the functionality. */
-					mainQUEUE_RECEIVE_TASK_PRIORITY, 		/* The priority assigned to the task. */
-					NULL );									/* The task handle is not required, so NULL is passed. */
-
-		xTaskCreate( prvSerialSender, "TX", configMINIMAL_STACK_SIZE, ( void * ) mainQUEUE_SEND_PARAMETER, mainQUEUE_SEND_TASK_PRIORITY, NULL );
-
-		/* Create the blinky software timer as described at the top of this
-		file. */
-		xTimer = xTimerCreate( 	"Blinky",					/* A text name, purely to help debugging. */
-								( mainBLINKY_TIMER_PERIOD ),/* The timer period. */
-								pdTRUE,						/* This is an auto-reload timer, so xAutoReload is set to pdTRUE. */
-								( void * ) 0,				/* The ID is not used, so can be set to anything. */
-								prvBlinkyTimerCallback		/* The callback function that inspects the status of all the other tasks. */
-							);
-
-		if( xTimer != NULL )
-		{
-			xTimerStart( xTimer, mainDONT_BLOCK );
-		}
-
-		/* Start the tasks and timer running. */
-		vTaskStartScheduler();
+		main_blinky();
 	}
+	#else
+	{
+		main_full();
+	}
+	#endif
 
-	/* If all is well, the scheduler will now be running, and the following
-	line will never be reached.  If the following line does execute, then
-	there was insufficient FreeRTOS heap memory available for the idle and/or
-	timer tasks	to be created.  See the memory management section on the
-	FreeRTOS web site for more details. */
+	return 0;
+}
+/*-----------------------------------------------------------*/
+
+static void prvSetupHardware( void )
+{
+	/* Configure the hardware for maximum performance. */
+	vHardwareConfigurePerformance();
+
+	/* Setup to use the external interrupt controller. */
+	vHardwareUseMultiVectoredInterrupts();
+
+	portDISABLE_INTERRUPTS();
+
+	/* Setup the digital IO for the LED's. */
+	vParTestInitialise();
+}
+/*-----------------------------------------------------------*/
+
+void vApplicationMallocFailedHook( void )
+{
+	/* vApplicationMallocFailedHook() will only be called if
+	configUSE_MALLOC_FAILED_HOOK is set to 1 in FreeRTOSConfig.h.  It is a hook
+	function that will get called if a call to pvPortMalloc() fails.
+	pvPortMalloc() is called internally by the kernel whenever a task, queue,
+	timer or semaphore is created.  It is also called by various parts of the
+	demo application.  If heap_1.c or heap_2.c are used, then the size of the
+	heap available to pvPortMalloc() is defined by configTOTAL_HEAP_SIZE in
+	FreeRTOSConfig.h, and the xPortGetFreeHeapSize() API function can be used
+	to query the size of free heap space that remains (although it does not
+	provide information on how the remaining heap might be fragmented). */
+	taskDISABLE_INTERRUPTS();
 	for( ;; );
 }
 /*-----------------------------------------------------------*/
 
-static void prvSerialSender( void *pvParameters )
+void vApplicationIdleHook( void )
 {
-TickType_t xNextWakeTime;
-Message xToSend = NULL;
-uint16_t = xAckResponse;
-
-	/* Check the task parameter is as expected. */
-	configASSERT( ( ( unsigned long ) pvParameters ) == mainQUEUE_SEND_PARAMETER );
-
-	/* Initialise xNextWakeTime - this only needs to be done once. */
-	xNextWakeTime = xTaskGetTickCount();
-
-	for( ;; )
-	{
-		/* Wait inicial para esperar que apareÃ§a alguma mensagem */
-		vTaskDelayUntil( &xNextWakeTime, mainQUEUE_SEND_FREQUENCY_MS );
-
-		xToSend = NULL;
-		xQueueReceive(xSendMessage, &( xToSend ), 0);
-		
-		if (xToSend != NULL) {
-			// rotina para enviar o dado
-			// PEGA MUTEX SE NECESSARIO AQUI
-			
-			// Adicionar os valores nessa mesma ordem dentro das funções de envio para porta serial
-			xToSend.soh;
-			xToSend.length;
-			xToSend.lenghtCompliment;
-			xToSend.version;
-			(uint8_t)xToSend.timeStamp;	
-			(uint8_t)(xToSend.timeStamp >> 8);
-			(uint8_t)(xToSend.timeStamp >> 16);
-			(uint8_t)(xToSend.timeStamp >> 24);
-			xToSend.flags;
-			(uint8_t)xToSend.messageType;
-			(uint8_t)(xToSend.messageType >> 8);
-			xToSend.stx;
-		
-			for (int i = 0; i < xToSend.length ; i++) {
-				xToSend.payload[i];
-			}
-			(uint8_t)(xToSend.checksum >> 8);
-			(uint8_t)xToSend.checksum;
-			
-			// Entrega mutex de volta, mensagem enviada
-			// Aguarda ack
-			
-			xQueueReceive(xAck, &( xAckResponse ), 30);
-			
-			// decodifica ack
-			// Fazer ação para cada um desses caras 
-			//(podemos dar um jeito de fazer um log pra poder verificar se isso está funcionando, ou ligar leds)
-			if (xAckResponse && mainFIRST_BIT_MASK) {
-				// Bad checksum -- Reenvia o dado
-			}
-			if ((xAckResponse >> 1) && mainFIRST_BIT_MASK) {
-				//Type not supported -- Verificar o que foi enviado
-			}
-			if ((xAckResponse >> 2) && mainFIRST_BIT_MASK) {
-				// Bad format -- Verificar o que foi enviado
-			}
-			if ((xAckResponse >> 3) && mainFIRST_BIT_MASK) {
-				// Out of Range
-			}
-			if ((xAckResponse >> 4) && mainFIRST_BIT_MASK) {
-				// No bandwidth
-			}
-			if ((xAckResponse >> 5) && mainFIRST_BIT_MASK) {
-				// Frequency too high
-			}
-			if ((xAckResponse >> 6) && mainFIRST_BIT_MASK) {
-				// Too many message types
-			}
-			
-			
-		}
-		
-		
-		
-	}
+	/* vApplicationIdleHook() will only be called if configUSE_IDLE_HOOK is set
+	to 1 in FreeRTOSConfig.h.  It will be called on each iteration of the idle
+	task.  It is essential that code added to this hook function never attempts
+	to block in any way (for example, call xQueueReceive() with a block time
+	specified, or call vTaskDelay()).  If the application makes use of the
+	vTaskDelete() API function (as this demo application does) then it is also
+	important that vApplicationIdleHook() is permitted to return to its calling
+	function, because it is the responsibility of the idle task to clean up
+	memory allocated by the kernel to any task that has since been deleted. */
 }
 /*-----------------------------------------------------------*/
 
-static void prvSerialReceiver( void *pvParameters )
+void vApplicationStackOverflowHook( TaskHandle_t pxTask, char *pcTaskName )
 {
-unsigned long ulReceivedValue;
-Message xMessageReceived;
-uint8_t xCharReceived;
-uint16_t xTesteChecksum;
+	( void ) pcTaskName;
+	( void ) pxTask;
 
-	/* Check the task parameter is as expected. */
-	configASSERT( ( ( unsigned long ) pvParameters ) == mainQUEUE_RECEIVE_PARAMETER );
-
-	for( ;; )
-	{
-		//xSerialGetChar
-		//Receber o char
-		
-		if (xMessageReceived.soh == xCharReceived) {
-			//xSerialGetChar
-			xMessageReceived.length = xCharReceived;
-			xMessageReceived.lengthCompliment = xCharReceived;
-			// Testa o complemento
-			if (xMessageReceived.length + xMessageReceived.lengthCompliment = 0xFFFF){
-				//xSerialGetChar
-				if (xMessageReceived.version == xCharReceived) {
-					// timestamp
-					//flags
-					//messageType (talvez pode ser colocado aqui o que vai ser feito por causa do ack, ou ficar de tarefa pra outra task)
-					// stx
-					if(xMessageReceived.stx == xCharReceived){
-						//receber payload definido na length (um for mesmo)
-						// Depois receber checksum e usar função para testar com os dados que já tem
-						xTesteChecksum = getChecksum(xMessageReceived);
-						if (xTesteChecksum == xMessageReceived.checksum) {
-							// Finaliza parser e envia a mensagem para ser utilizada em outra fila de task
-							if (xMessageReceived.messageType < 0x8000) {
-								// isso é um ack, colocar na fila de ack
-								xQueueSend(xAck, (void) &xMessageReceived, 0 ); // enviar pra fila de Ack
-							} else {
-								//Se não for vai ser um dado que pode ser colocado em uma fila para ser utilizado por outra task
-							}
-							
-						} // checksum deu falha aqui;
-					} // else aqui caso o stx venha diferente do esperado
-				} // else aqui de erro caso a versao esteja incorreta
-			} // else aqui caso o tamanho esteja incorreto
-		}
-		
-		
-		
-	}
+	/* Run time task stack overflow checking is performed if
+	configCHECK_FOR_STACK_OVERFLOW is defined to 1 or 2.  This hook	function is 
+	called if a task stack overflow is detected.  Note the system/interrupt
+	stack is not checked. */
+	taskDISABLE_INTERRUPTS();
+	for( ;; );
 }
 /*-----------------------------------------------------------*/
 
-static void prvBlinkyTimerCallback( TimerHandle_t xTimer )
+void vApplicationTickHook( void )
 {
-	/* This function is called when the blinky software time expires.  All the
-	function does is toggle the LED.  LED mainTIMER_LED should therefore toggle
-	with the period set by mainBLINKY_TIMER_PERIOD. */
-	vParTestToggleLED( mainTIMER_LED );
+	/* This function will be called by each tick interrupt if
+	configUSE_TICK_HOOK is set to 1 in FreeRTOSConfig.h.  User code can be
+	added here, but the tick hook is called from an interrupt context, so
+	code must not attempt to block, and only the interrupt safe FreeRTOS API
+	functions can be used (those that end in FromISR()). */
 }
+/*-----------------------------------------------------------*/
 
+void _general_exception_handler( unsigned long ulCause, unsigned long ulStatus )
+{
+	/* This overrides the definition provided by the kernel.  Other exceptions 
+	should be handled here. */
+	for( ;; );
+}
+/*-----------------------------------------------------------*/
+
+void vAssertCalled( const char * pcFile, unsigned long ulLine )
+{
+volatile unsigned long ul = 0;
+
+	( void ) pcFile;
+	( void ) ulLine;
+
+	__asm volatile( "di" );
+	{
+		/* Set ul to a non-zero value using the debugger to step out of this
+		function. */
+		while( ul == 0 )
+		{
+			portNOP();
+		}
+	}
+	__asm volatile( "ei" );
+}

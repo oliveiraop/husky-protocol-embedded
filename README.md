@@ -6,7 +6,7 @@ Projeto de um microcontrolador para o robô Husky UGV da Clearpath, utilizando F
 
 Consiste de arquivos incluídos e modificados do Demo PIC32MX_MPLAB, que acompanha a instalação do FreeRTOS.
 
-* `main.c` e `main_full.c`: arquivos de execução do sistema, modificados do exemplo original
+* `main.c` e `main_blinky.c`: arquivos de execução do sistema, modificados a partir do exemplo original
 * `Message.c`: funções de definição e manipulação das Mensagens a serem trocadas pelo sistema
 * `crc.c`: função de Checksum CRC CCITT por tabela
 
