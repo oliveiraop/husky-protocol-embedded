@@ -68,7 +68,6 @@
 
 /* Standard includes. */
 #include <stdio.h>
-#include "Message.h"
 
 /* Kernel includes. */
 #include "FreeRTOS.h"
@@ -79,6 +78,9 @@
 /* Standard demo includes. */
 #include "partest.h"
 
+/* Includes do projeto */
+#include "Message.h"
+
 /* Priorities at which the tasks are created. */
 #define mainQUEUE_RECEIVE_TASK_PRIORITY		( tskIDLE_PRIORITY + 2 )
 #define	mainQUEUE_SEND_TASK_PRIORITY		( tskIDLE_PRIORITY + 1 )
@@ -87,15 +89,9 @@
 to ticks using the portTICK_PERIOD_MS constant. */
 #define mainQUEUE_SEND_FREQUENCY_MS			( 200 / portTICK_PERIOD_MS )
 
-/* The number of items the queue can hold.  This is 1 as the receive task
-will remove items as they are added, meaning the send task should always find
-the queue empty. */
+/* Numero de itens que podem ser guardados na fila. 10 foi um numero escolhido
+ * arbitrariamente para garantir certa margem de seguranca. */
 #define mainQUEUE_LENGTH					( 10 )
-
-/* Values passed to the two tasks just to check the task parameter
-functionality. */
-#define mainQUEUE_SEND_PARAMETER			( 0x1111UL )
-#define mainQUEUE_RECEIVE_PARAMETER			( 0x22UL )
 
 /* The period of the blinky software timer.  The period is specified in ms and
 converted to ticks using the portTICK_PERIOD_MS constant. */
@@ -108,9 +104,8 @@ converted to ticks using the portTICK_PERIOD_MS constant. */
 /* Misc. */
 #define mainDONT_BLOCK						( 0 )
 
-/* Mascara de bit unitario */
+/* Mascara para retornar primeiro bit de um dado. */
 #define mainFIRST_BIT_MASK					0x00000001
-
 
 /*-----------------------------------------------------------*/
 
@@ -130,52 +125,53 @@ static void prvBlinkyTimerCallback( TimerHandle_t xTimer );
  * Called by main() to create the simply blinky style application if
  * mainCREATE_SIMPLE_BLINKY_DEMO_ONLY is set to 1.
  */
-void main( void );
+void main_blinky( void );
 
 /*-----------------------------------------------------------*/
 
-/* The queue used by both tasks. */
+/* Inicializa handles para as estruturas criadas a seguir. */
 static QueueHandle_t xSendMessage = NULL;
-static QueueHandle_t xAck = NULL;
-static SemaphoreHandle_t xSerial = NULL;
+static QueueHandle_t xRcvdMessage = NULL;
 
 /*-----------------------------------------------------------*/
 
-void main( void )
+void main_blinky( void )
 {
 	TimerHandle_t xTimer;
 
-	/* Criar estruturas */
+	/* Criar as estruturas:
+	 * Fila para mensagens a enviar; 
+	 * Fila para mensagens recebidas. */
 	xSendMessage = xQueueCreate( mainQUEUE_LENGTH, sizeof( Message ) );
-	xAck = xQueueCreate( mainQUEUE_LENGTH, sizeof( Message ) );
-	xSerial = xSemaphoreCreateMutex( void );
+	xRcvdMessage = xQueueCreate( mainQUEUE_LENGTH, sizeof( Message ) );
 
 	if( xSendMessage != NULL )
 	{
-		/* Create the two tasks as described in the comments at the top of this
-		file. */
-		xTaskCreate( prvSerialReceiver,					/* The function that implements the task. */
+		/* Cria task do receptor serial que salva mensagens recebidas em fila. */
+		xTaskCreate( prvSerialReceiver,						/* The function that implements the task. */
 					"Rx", 									/* The text name assigned to the task - for debug only as it is not used by the kernel. */
 					configMINIMAL_STACK_SIZE, 				/* The size of the stack to allocate to the task. */
-					( void * ) mainQUEUE_RECEIVE_PARAMETER, /* The parameter passed to the task - just to check the functionality. */
+					NULL									/* The parameter passed to the task. */
 					mainQUEUE_RECEIVE_TASK_PRIORITY, 		/* The priority assigned to the task. */
 					NULL );									/* The task handle is not required, so NULL is passed. */
 
-		xTaskCreate( prvSerialSender, "TX", configMINIMAL_STACK_SIZE, ( void * ) mainQUEUE_SEND_PARAMETER, mainQUEUE_SEND_TASK_PRIORITY, NULL );
+		/* Cria task do transmissor serial que salva mensagens a enviar em fila. */
+		xTaskCreate( prvSerialSender, "TX", configMINIMAL_STACK_SIZE, NULL, mainQUEUE_SEND_TASK_PRIORITY, NULL );
 
-		/* Create the blinky software timer as described at the top of this
+		/* create the blinky software timer as described at the top of this
 		file. */
-		xTimer = xTimerCreate( 	"Blinky",					/* A text name, purely to help debugging. */
-								( mainBLINKY_TIMER_PERIOD ),/* The timer period. */
-								pdTRUE,						/* This is an auto-reload timer, so xAutoReload is set to pdTRUE. */
-								( void * ) 0,				/* The ID is not used, so can be set to anything. */
-								prvBlinkyTimerCallback		/* The callback function that inspects the status of all the other tasks. */
+		xtimer = xtimercreate( 	"blinky",					/* a text name, purely to help debugging. */
+								( mainblinky_timer_period ),/* the timer period. */
+								pdtrue,						/* this is an auto-reload timer, so xautoreload is set to pdtrue. */
+								( void * ) 0,				/* the id is not used, so can be set to anything. */
+								prvblinkytimercallback		/* the callback function that inspects the status of all the other tasks. */
 							);
 
-		if( xTimer != NULL )
+		if( xtimer != null )
 		{
-			xTimerStart( xTimer, mainDONT_BLOCK );
+			xtimerstart( xtimer, maindont_block );
 		}
+
 
 		/* Start the tasks and timer running. */
 		vTaskStartScheduler();
@@ -194,17 +190,18 @@ static void prvSerialSender( void *pvParameters )
 {
 TickType_t xNextWakeTime;
 Message xToSend = NULL;
-uint16_t = xAckResponse;
+uint16_t = usAckResponse;
 
-	/* Check the task parameter is as expected. */
-	configASSERT( ( ( unsigned long ) pvParameters ) == mainQUEUE_SEND_PARAMETER );
 
 	/* Initialise xNextWakeTime - this only needs to be done once. */
 	xNextWakeTime = xTaskGetTickCount();
 
 	for( ;; )
 	{
-		/* Wait inicial para esperar que apareÃ§a alguma mensagem */
+		/* Place this task in the blocked state until it is time to run again.
+		The block time is specified in ticks, the constant used converts ticks
+		to ms.  While in the Blocked state this task will not consume any CPU
+		time. */
 		vTaskDelayUntil( &xNextWakeTime, mainQUEUE_SEND_FREQUENCY_MS );
 
 		xToSend = NULL;
@@ -214,7 +211,7 @@ uint16_t = xAckResponse;
 			// rotina para enviar o dado
 			// PEGA MUTEX SE NECESSARIO AQUI
 			
-			// Adicionar os valores nessa mesma ordem dentro das funções de envio para porta serial
+			// Adicionar os valores nessa mesma ordem dentro das funï¿½ï¿½es de envio para porta serial
 			xToSend.soh;
 			xToSend.length;
 			xToSend.lenghtCompliment;
@@ -240,8 +237,8 @@ uint16_t = xAckResponse;
 			xQueueReceive(xAck, &( xAckResponse ), 30);
 			
 			// decodifica ack
-			// Fazer ação para cada um desses caras 
-			//(podemos dar um jeito de fazer um log pra poder verificar se isso está funcionando, ou ligar leds)
+			// Fazer aï¿½ï¿½o para cada um desses caras 
+			//(podemos dar um jeito de fazer um log pra poder verificar se isso estï¿½ funcionando, ou ligar leds)
 			if (xAckResponse && mainFIRST_BIT_MASK) {
 				// Bad checksum -- Reenvia o dado
 			}
@@ -263,12 +260,7 @@ uint16_t = xAckResponse;
 			if ((xAckResponse >> 6) && mainFIRST_BIT_MASK) {
 				// Too many message types
 			}
-			
-			
 		}
-		
-		
-		
 	}
 }
 /*-----------------------------------------------------------*/
@@ -279,9 +271,6 @@ unsigned long ulReceivedValue;
 Message xMessageReceived;
 uint8_t xCharReceived;
 uint16_t xTesteChecksum;
-
-	/* Check the task parameter is as expected. */
-	configASSERT( ( ( unsigned long ) pvParameters ) == mainQUEUE_RECEIVE_PARAMETER );
 
 	for( ;; )
 	{
@@ -302,15 +291,15 @@ uint16_t xTesteChecksum;
 					// stx
 					if(xMessageReceived.stx == xCharReceived){
 						//receber payload definido na length (um for mesmo)
-						// Depois receber checksum e usar função para testar com os dados que já tem
+						// Depois receber checksum e usar funï¿½ï¿½o para testar com os dados que jï¿½ tem
 						xTesteChecksum = getChecksum(xMessageReceived);
 						if (xTesteChecksum == xMessageReceived.checksum) {
 							// Finaliza parser e envia a mensagem para ser utilizada em outra fila de task
 							if (xMessageReceived.messageType < 0x8000) {
-								// isso é um ack, colocar na fila de ack
+								// isso ï¿½ um ack, colocar na fila de ack
 								xQueueSend(xAck, (void) &xMessageReceived, 0 ); // enviar pra fila de Ack
 							} else {
-								//Se não for vai ser um dado que pode ser colocado em uma fila para ser utilizado por outra task
+								//Se nï¿½o for vai ser um dado que pode ser colocado em uma fila para ser utilizado por outra task
 							}
 							
 						} // checksum deu falha aqui;
@@ -318,9 +307,6 @@ uint16_t xTesteChecksum;
 				} // else aqui de erro caso a versao esteja incorreta
 			} // else aqui caso o tamanho esteja incorreto
 		}
-		
-		
-		
 	}
 }
 /*-----------------------------------------------------------*/
