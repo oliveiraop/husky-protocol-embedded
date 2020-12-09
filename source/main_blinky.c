@@ -211,7 +211,7 @@ uint16_t = usAckResponse;
 			// rotina para enviar o dado
 			// PEGA MUTEX SE NECESSARIO AQUI
 			
-			// Adicionar os valores nessa mesma ordem dentro das fun��es de envio para porta serial
+			// Adicionar os valores nessa mesma ordem dentro das funcoes de envio para porta serial
 			xToSend.soh;
 			xToSend.length;
 			xToSend.lenghtCompliment;
@@ -238,7 +238,7 @@ uint16_t = usAckResponse;
 			
 			// decodifica ack
 			// Fazer a��o para cada um desses caras 
-			//(podemos dar um jeito de fazer um log pra poder verificar se isso est� funcionando, ou ligar leds)
+			//(podemos dar um jeito de fazer um log pra poder verificar se isso esta funcionando, ou ligar leds)
 			if (xAckResponse && mainFIRST_BIT_MASK) {
 				// Bad checksum -- Reenvia o dado
 			}
@@ -302,7 +302,7 @@ uint16_t xTesteChecksum;
 								//Se n�o for vai ser um dado que pode ser colocado em uma fila para ser utilizado por outra task
 							}
 							
-						} // checksum deu falha aqui;
+						} //else aqui para caso checksum deu falha;
 					} // else aqui caso o stx venha diferente do esperado
 				} // else aqui de erro caso a versao esteja incorreta
 			} // else aqui caso o tamanho esteja incorreto
