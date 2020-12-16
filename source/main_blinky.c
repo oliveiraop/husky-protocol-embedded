@@ -191,6 +191,7 @@ static void prvSerialSender( void *pvParameters )
 TickType_t xNextWakeTime;
 Message xToSend = NULL;
 uint16_t = usAckResponse;
+int badChecksum = 0;
 
 
 	/* Initialise xNextWakeTime - this only needs to be done once. */
@@ -210,55 +211,60 @@ uint16_t = usAckResponse;
 		if (xToSend != NULL) {
 			// rotina para enviar o dado
 			// PEGA MUTEX SE NECESSARIO AQUI
+			badChecksum = 1;
+			while (badChecksum){
+				// Adicionar os valores nessa mesma ordem dentro das funcoes de envio para porta serial
+				xToSend.soh;
+				xToSend.length;
+				xToSend.lenghtCompliment;
+				xToSend.version;
+				(uint8_t)xToSend.timeStamp;	
+				(uint8_t)(xToSend.timeStamp >> 8);
+				(uint8_t)(xToSend.timeStamp >> 16);
+				(uint8_t)(xToSend.timeStamp >> 24);
+				xToSend.flags;
+				(uint8_t)xToSend.messageType;
+				(uint8_t)(xToSend.messageType >> 8);
+				xToSend.stx;
 			
-			// Adicionar os valores nessa mesma ordem dentro das funcoes de envio para porta serial
-			xToSend.soh;
-			xToSend.length;
-			xToSend.lenghtCompliment;
-			xToSend.version;
-			(uint8_t)xToSend.timeStamp;	
-			(uint8_t)(xToSend.timeStamp >> 8);
-			(uint8_t)(xToSend.timeStamp >> 16);
-			(uint8_t)(xToSend.timeStamp >> 24);
-			xToSend.flags;
-			(uint8_t)xToSend.messageType;
-			(uint8_t)(xToSend.messageType >> 8);
-			xToSend.stx;
-		
-			for (int i = 0; i < xToSend.length ; i++) {
-				xToSend.payload[i];
-			}
-			(uint8_t)(xToSend.checksum >> 8);
-			(uint8_t)xToSend.checksum;
-			
-			// Entrega mutex de volta, mensagem enviada
-			// Aguarda ack
-			
-			xQueueReceive(xAck, &( xAckResponse ), 30);
-			
-			// decodifica ack
-			// Fazer a��o para cada um desses caras 
-			//(podemos dar um jeito de fazer um log pra poder verificar se isso esta funcionando, ou ligar leds)
-			if (xAckResponse && mainFIRST_BIT_MASK) {
-				// Bad checksum -- Reenvia o dado
-			}
-			if ((xAckResponse >> 1) && mainFIRST_BIT_MASK) {
-				//Type not supported -- Verificar o que foi enviado
-			}
-			if ((xAckResponse >> 2) && mainFIRST_BIT_MASK) {
-				// Bad format -- Verificar o que foi enviado
-			}
-			if ((xAckResponse >> 3) && mainFIRST_BIT_MASK) {
-				// Out of Range
-			}
-			if ((xAckResponse >> 4) && mainFIRST_BIT_MASK) {
-				// No bandwidth
-			}
-			if ((xAckResponse >> 5) && mainFIRST_BIT_MASK) {
-				// Frequency too high
-			}
-			if ((xAckResponse >> 6) && mainFIRST_BIT_MASK) {
-				// Too many message types
+				for (int i = 0; i < xToSend.length ; i++) {
+					xToSend.payload[i];
+				}
+				(uint8_t)(xToSend.checksum >> 8);
+				(uint8_t)xToSend.checksum;
+				
+				// Entrega mutex de volta, mensagem enviada
+				// Aguarda ack
+				
+				xQueueReceive(xAck, &( xAckResponse ), portMAX_DELAY);
+				
+				// decodifica ack
+				// Fazer a��o para cada um desses caras 
+				//(podemos dar um jeito de fazer um log pra poder verificar se isso esta funcionando, ou ligar leds)
+				if (xAckResponse && mainFIRST_BIT_MASK) {
+					// Bad checksum -- Reenvia o dado
+				} else {
+					badChecksum = 1;
+				}
+				if ((xAckResponse >> 1) && mainFIRST_BIT_MASK) {
+					//Type not supported -- Verificar o que foi enviado
+				}
+				if ((xAckResponse >> 2) && mainFIRST_BIT_MASK) {
+					// Bad format -- Verificar o que foi enviado
+				}
+				if ((xAckResponse >> 3) && mainFIRST_BIT_MASK) {
+					// Out of Range
+				}
+				if ((xAckResponse >> 4) && mainFIRST_BIT_MASK) {
+					// No bandwidth
+				}
+				if ((xAckResponse >> 5) && mainFIRST_BIT_MASK) {
+					// Frequency too high
+				}
+				if ((xAckResponse >> 6) && mainFIRST_BIT_MASK) {
+					// Too many message types
+				}
+				
 			}
 		}
 	}
