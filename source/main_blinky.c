@@ -38,20 +38,24 @@
 #include "Message.h"
 
 /* Priorities at which the tasks are created. */
-#define mainSEM_TEST_PRIORITY				( tskIDLE_PRIORITY + 1 )
-#define mainQUEUE_RECEIVE_TASK_PRIORITY		( tskIDLE_PRIORITY )
+#define mainQUEUE_RECV_TASK_PRIORITY		( tskIDLE_PRIORITY )
 #define	mainQUEUE_SEND_TASK_PRIORITY		( tskIDLE_PRIORITY )
+#define	mainUART_RECV_TASK_PRIORITY			( tskIDLE_PRIORITY + 2 )
+#define	mainUART_SEND_TASK_PRIORITY			( tskIDLE_PRIORITY + 1 )
+
+/* Prioridades das interrupcoes UART. */
+#define mainUART_INTERRUPT_PRIORITY			( configKERNEL_INTERRUPT_PRIORITY + 1 )
 
 /* Frequencia de acesso a filas, caso estejam vazias. O valor de 10ms e
 convertido para ticks utilizando a constante portTICK_PERIOD_MS. */
 #define mainQUEUE_ACCESS_FREQUENCY_MS		( 10 / portTICK_PERIOD_MS )
 
-/* Numero de itens que podem ser guardados na fila. 1000 foi um numero escolhido
+/* Numero de itens que podem ser guardados na fila. 1024 foi um numero escolhido
 arbitrariamente para garantir certa margem de seguranca. */
-#define mainQUEUE_LENGTH					( 1000 )
+#define mainQUEUE_LENGTH					( 1024 )
 
-/* Misc. */
-#define mainDONT_BLOCK						( 0 )
+/* Taxa de baud desejada para comunicação UART. */
+#define mainDESIRED_BAUD_RATE				( 115200 )
 
 /* Mascara para retornar primeiro bit de um dado. */
 #define mainFIRST_BIT_MASK					0x00000001
@@ -63,13 +67,32 @@ arbitrariamente para garantir certa margem de seguranca. */
  * UART para envio serial e os envia para a fila de pacotes a enviar. Aguarda
  * recebimento de ACK antes de enviar proxima mensagem.
  */
-static void prvSerialSender( void *pvParameters );
+static void prvMessageSender( void *pvParameters );
 
 /*
  * Acessa fila de pacotes UART e monta mensagem completa, então analisa seu
  * conteúdo e a encaminha para a tarefa responsavel pela acao necessaria.
  */
-static void prvSerialReceiver( void *pvParameters );
+static void prvMessageReceiver( void *pvParameters );
+
+/*
+ * Acessa fila de bytes UART a enviar e transmite para os registradores de envio.
+ */
+static void prvUartSender( void *pvParameters );
+
+/*
+ * Acessa registradores de recebimento UART conforme interrupção e transfere
+ * para a fila de bytes recebidos. Quando detectar fim da mensagem chama a
+ * funcao de recebimento de mensagem.
+ */
+static void prvUartReceiver( void *pvParameters );
+
+/*
+ * Configura o modulo UART para funcionar como 115200 baud, 8 bits de data, sem
+ * paridade e 1 bit se parada.
+ */
+
+static void prvUartInit( void *pvParameters );
 
 /*
  * Called by main() to create the simply blinky style application if
@@ -82,42 +105,50 @@ void main_husky( void );
 /* Inicializa handles para as estruturas criadas a seguir. */
 static QueueHandle_t xSendMessage = NULL;
 static QueueHandle_t xRcvdMessage = NULL;
+static QueueHandle_t xSendUART = NULL;
+static QueueHandle_t xRcvdUART = NULL;
 static QueueHandle_t xAck = NULL;
 
 /*-----------------------------------------------------------*/
 
 void main_husky( void )
 {
-	TimerHandle_t xTimer;
-
-	/* Cria as estruturas:
-	 * Fila para mensagens a enviar;
-	 * Fila para mensagens recebidas. */
+	/* Cria as filas para armazenamento das mensagens a ler e enviar. */
 	xSendMessage = xQueueCreate( mainQUEUE_LENGTH, sizeof( Message ) );
 	xRcvdMessage = xQueueCreate( mainQUEUE_LENGTH, sizeof( Message ) );
+	xSendUART = xQueueCreate( mainQUEUE_LENGTH, sizeof( Message ) );
+	xRcvdUART = xQueueCreate( mainQUEUE_LENGTH, sizeof( Message ) );
 	xAck = xQueueCreate( 1, sizeof( uint16_t ))
 
-	/* Cria mutexes de acesso às estruturas. */
-	xMutexSend = xSemaphoreCreateMutex();
-	xMutexRcvd = xSemaphoreCreateMutex();
+	/* Cria mutexes de acesso às filas. */
+	xMutexSendMsg = xSemaphoreCreateMutex();
+	xMutexRcvdMsg = xSemaphoreCreateMutex();
+	xMutexSendUART = xSemaphoreCreateMutex();
+	xMutexRcvdUART = xSemaphoreCreateMutex();
 	xMutexAck = xSemaphoreCreateMutex();
 
-	if( xSendMessage != NULL )
-	{
-		/* Cria task do receptor serial que salva mensagens recebidas em fila. */
-		xTaskCreate( prvSerialReceiver,						/* The function that implements the task. */
-					"Rx", 									/* The text name assigned to the task - for debug only as it is not used by the kernel. */
-					configMINIMAL_STACK_SIZE,				/* The size of the stack to allocate to the task. */
-					NULL,									/* The parameter passed to the task. */
-					mainQUEUE_RECEIVE_TASK_PRIORITY, 		/* The priority assigned to the task. */
-					NULL );									/* The task handle is not required, so NULL is passed. */
+	/* Configuracao inicial dos registradores UART. */
+	prvUartInit();
 
-		/* Cria task do transmissor serial que salva mensagens a enviar em fila. */
-		xTaskCreate( prvSerialSender, "Tx", configMINIMAL_STACK_SIZE, NULL, mainQUEUE_SEND_TASK_PRIORITY, NULL );
+	/* Cria task do receptor serial que salva mensagens recebidas em fila. */
+	xTaskCreate( prvMessageReceiver,					/* The function that implements the task. */
+				"Rx_Msg", 								/* The text name assigned to the task - for debug only as it is not used by the kernel. */
+				configMINIMAL_STACK_SIZE,				/* The size of the stack to allocate to the task. */
+				NULL,									/* The parameter passed to the task. */
+				mainQUEUE_RECV_TASK_PRIORITY, 			/* The priority assigned to the task. */
+				NULL );									/* The task handle is not required, so NULL is passed. */
 
-		/* Start the tasks and timer running. */
-		vTaskStartScheduler();
-	}
+	/* Cria task do transmissor serial que salva mensagens a enviar em fila. */
+	xTaskCreate( prvMessageSender, "Tx_Msg", configMINIMAL_STACK_SIZE, NULL, mainQUEUE_SEND_TASK_PRIORITY, NULL );
+
+	/* Cria task do receptor UART. */
+	xTaskCreate( prvUartReceiver, "Rx_UART", configMINIMAL_STACK_SIZE, NULL, mainUART_RECV_TASK_PRIORITY, NULL );
+
+	/* Cria task do receptor UART. */
+	xTaskCreate( prvUartSender, "Tx_UART", configMINIMAL_STACK_SIZE, NULL, mainUART_SEND_TASK_PRIORITY, NULL );
+
+	/* Start the tasks and timer running. */
+	vTaskStartScheduler();
 
 	/* If all is well, the scheduler will now be running, and the following
 	line will never be reached.  If the following line does execute, then
@@ -128,7 +159,7 @@ void main_husky( void )
 }
 /*-----------------------------------------------------------*/
 
-static void prvSerialSender( void *pvParameters )
+static void prvMessageSender( void *pvParameters )
 {
 uint8_t ucBadChecksum = 0;
 uint16_t usAckResponse = NULL;
@@ -141,11 +172,11 @@ Message xToSend = NULL;
 		while( xToSend == NULL)
 		{
 			/* Pega mutex para ler da pilha de mensagem a enviar */
-			xSemaphoreTake( xMutexSend, portMAX_DELAY );
+			xSemaphoreTake( xMutexSendMsg, portMAX_DELAY );
 			{
 				xQueueReceive( xSendMessage, &( xToSend ), 0 );
 			}
-			xSemaphoreGive( xMutexSend );
+			xSemaphoreGive( xMutexSendMsg );
 		}
 
 		/* Rotina para enviar o dado */
@@ -197,10 +228,11 @@ Message xToSend = NULL;
 }
 /*-----------------------------------------------------------*/
 
-static void prvSerialReceiver( void *pvParameters )
+static void prvMessageReceiver( void *pvParameters )
 {
 uint8_t ucInvalidMessage;
 uint16_t usTesteChecksum;
+uint16_t usMessageType;
 uint32_t ulReceivedValue;
 Message xMessageReceived;
 
@@ -226,25 +258,74 @@ Message xMessageReceived;
 
 		/* TODO: Age sobre recebimento de mensagem inválida enviada pela plataforma. */
 		if( ucInvalidMessage )
+		{
+		}
 
 		/* TODO: Apura tipo da mensagem recebida e trata ou encaminha para a task necessária. */
-		switch( xMessageReceived.messageType )
+		usMessageType = xMessageReceived.messageType;
+
+		/* Se a mensagem não for de tipo Data, tem que ser um Ack em resposta a
+		Requisições ou Comandos. */
+		if( usMessageType < 0x8000)
 		{
-			/* Caso seja um Ack, por exemplo: */
-			case xMessageReceived.messageType < 0x8000:
-				/* Coloca na fila de ack. */
-				xSemaphoreTake( xMutexAck, portMAX_DELAY );
-				{
-					/* Envia pra fila de Ack */
-					xQueueSend(xAck, (void) &xMessageReceived, 0 );
-				}
-				xSemaphoreGive( xMutexAck );
-
-				/* Chama tarefa específica para o tipo de mensagem. */
-				/* TODO */
-
-			default:
+			/* Adquire mutex para escrever na fila de Ack */
+			xSemaphoreTake( xMutexAck, portMAX_DELAY );
+			{
+				/* Envia pra fila de Ack */
+				xQueueSend(xAck, (void) &xMessageReceived, 0 );
 			}
+			xSemaphoreGive( xMutexAck );
 		}
+
+		/* Caso seja um Echo Data. */
+		if( usMessageType == 0x8000 )
+		{
+			/* TODO */
+		}
+
+		/* Caso seja Platform info. */
+		if( usMessageType == 0x8001 )
+			/* TODO */
+		}
+
+		/* TODO: tratar todos os tipos de mensagens de Data. */
 	}
+}
+/*-----------------------------------------------------------*/
+
+static void prvUartReceiver( void *pvParameters )
+{
+}
+/*-----------------------------------------------------------*/
+
+static void prvUartSender( void *pvParameters )
+{
+}
+/*-----------------------------------------------------------*/
+
+static void prvUartInit( void *pvParameters )
+{
+uint16_t usBRG = NULL;								/* Valor baud UART a ser passado ao registrador. */
+uint32_t ulWantedBaud = NULL;						/* Valor baud desejado. */
+
+	/* Calcula taxa a ser passada ao registrador U1BRG. */
+	ulWantedBaud = mainDESIRED_BAUD_RATE;			/* Indica taxa baud desejada. */
+	usBRG = (unsigned short)(( (float)configPERIPHERAL_CLOCK_HZ / ( (float)16 * (float)ulWantedBaud ) ) - (float)0.5);
+	U1BRGbits.BRG = usBRG;							/* Inicializa taxa de baud apropriada. */
+
+	U1MODEbits.PDSEL = 0;							/* 8 bits de dados, 0 de paridade. */
+	U1MODEbits.STSEL = 0;							/* 1 bit de parada. */
+
+	IEC0bits.U1TXIE = 1;							/* Habilita interrupcao do transmissor. */
+	U1STAbits.UTXISEL0 = 0							/* Interrupcao gerada quando ha espaco no buffer. */
+
+	IEC0bits.U1RXIE = 1;							/* Habilita interrupcao do receptor. */
+	U1STAbits.URXISEL = 0							/* Interrupcao gerada quando chega byte no buffer. */
+
+	IPC6bits.U1IP = mainUART_INTERRUPT_PRIORITY;	/* Define prioridade de interrupcao. */
+	IPC6bits.U1IS = mainUART_INTERRUPT_PRIORITY;	/* Define subprioridade de interrupcao. */
+
+	U1MODEbits.ON = 1;								/* Habilita modulo UART. */
+	U1STAbits.URXEN = 1;							/* Habilita pino U1RX para leitura. */
+	U1STAbits.UTXEN = 1;							/* Habilita pino U1TX para escrita. */
 }
