@@ -43,17 +43,19 @@
 #define	mainUART_RECV_TASK_PRIORITY			( tskIDLE_PRIORITY + 2 )
 #define	mainUART_SEND_TASK_PRIORITY			( tskIDLE_PRIORITY + 1 )
 
+/* Prioridades das interrupcoes UART. */
+#define mainUART_INTERRUPT_PRIORITY			( configKERNEL_INTERRUPT_PRIORITY + 1 )
 
 /* Frequencia de acesso a filas, caso estejam vazias. O valor de 10ms e
 convertido para ticks utilizando a constante portTICK_PERIOD_MS. */
 #define mainQUEUE_ACCESS_FREQUENCY_MS		( 10 / portTICK_PERIOD_MS )
 
-/* Numero de itens que podem ser guardados na fila. 1000 foi um numero escolhido
+/* Numero de itens que podem ser guardados na fila. 1024 foi um numero escolhido
 arbitrariamente para garantir certa margem de seguranca. */
-#define mainQUEUE_LENGTH					( 1000 )
+#define mainQUEUE_LENGTH					( 1024 )
 
-/* Misc. */
-#define mainDONT_BLOCK						( 0 )
+/* Taxa de baud desejada para comunicação UART. */
+#define mainDESIRED_BAUD_RATE				( 115200 )
 
 /* Mascara para retornar primeiro bit de um dado. */
 #define mainFIRST_BIT_MASK					0x00000001
@@ -86,6 +88,13 @@ static void prvUartSender( void *pvParameters );
 static void prvUartReceiver( void *pvParameters );
 
 /*
+ * Configura o modulo UART para funcionar como 115200 baud, 8 bits de data, sem
+ * paridade e 1 bit se parada.
+ */
+
+static void prvUartInit( void *pvParameters );
+
+/*
  * Called by main() to create the simply blinky style application if
  * mainCREATE_SIMPLE_BLINKY_DEMO_ONLY is set to 1.
  */
@@ -104,8 +113,6 @@ static QueueHandle_t xAck = NULL;
 
 void main_husky( void )
 {
-	TimerHandle_t xTimer;
-
 	/* Cria as filas para armazenamento das mensagens a ler e enviar. */
 	xSendMessage = xQueueCreate( mainQUEUE_LENGTH, sizeof( Message ) );
 	xRcvdMessage = xQueueCreate( mainQUEUE_LENGTH, sizeof( Message ) );
@@ -120,12 +127,15 @@ void main_husky( void )
 	xMutexRcvdUART = xSemaphoreCreateMutex();
 	xMutexAck = xSemaphoreCreateMutex();
 
+	/* Configuracao inicial dos registradores UART. */
+	prvUartInit();
+
 	/* Cria task do receptor serial que salva mensagens recebidas em fila. */
 	xTaskCreate( prvMessageReceiver,					/* The function that implements the task. */
-				"Rx_Msg", 									/* The text name assigned to the task - for debug only as it is not used by the kernel. */
+				"Rx_Msg", 								/* The text name assigned to the task - for debug only as it is not used by the kernel. */
 				configMINIMAL_STACK_SIZE,				/* The size of the stack to allocate to the task. */
 				NULL,									/* The parameter passed to the task. */
-				mainQUEUE_RECV_TASK_PRIORITY, 		/* The priority assigned to the task. */
+				mainQUEUE_RECV_TASK_PRIORITY, 			/* The priority assigned to the task. */
 				NULL );									/* The task handle is not required, so NULL is passed. */
 
 	/* Cria task do transmissor serial que salva mensagens a enviar em fila. */
@@ -290,4 +300,32 @@ static void prvUartReceiver( void *pvParameters )
 
 static void prvUartSender( void *pvParameters )
 {
+}
+/*-----------------------------------------------------------*/
+
+static void prvUartInit( void *pvParameters )
+{
+uint16_t usBRG = NULL;								/* Valor baud UART a ser passado ao registrador. */
+uint32_t ulWantedBaud = NULL;						/* Valor baud desejado. */
+
+	/* Calcula taxa a ser passada ao registrador U1BRG. */
+	ulWantedBaud = mainDESIRED_BAUD_RATE;			/* Indica taxa baud desejada. */
+	usBRG = (unsigned short)(( (float)configPERIPHERAL_CLOCK_HZ / ( (float)16 * (float)ulWantedBaud ) ) - (float)0.5);
+	U1BRGbits.BRG = usBRG;							/* Inicializa taxa de baud apropriada. */
+
+	U1MODEbits.PDSEL = 0;							/* 8 bits de dados, 0 de paridade. */
+	U1MODEbits.STSEL = 0;							/* 1 bit de parada. */
+
+	IEC0bits.U1TXIE = 1;							/* Habilita interrupcao do transmissor. */
+	U1STAbits.UTXISEL0 = 0							/* Interrupcao gerada quando ha espaco no buffer. */
+
+	IEC0bits.U1RXIE = 1;							/* Habilita interrupcao do receptor. */
+	U1STAbits.URXISEL = 0							/* Interrupcao gerada quando chega byte no buffer. */
+
+	IPC6bits.U1IP = mainUART_INTERRUPT_PRIORITY;	/* Define prioridade de interrupcao. */
+	IPC6bits.U1IS = mainUART_INTERRUPT_PRIORITY;	/* Define subprioridade de interrupcao. */
+
+	U1MODEbits.ON = 1;								/* Habilita modulo UART. */
+	U1STAbits.URXEN = 1;							/* Habilita pino U1RX para leitura. */
+	U1STAbits.UTXEN = 1;							/* Habilita pino U1TX para escrita. */
 }
