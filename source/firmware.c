@@ -8,6 +8,10 @@
 
 void config() {
 	// Colocar aqui as configurações de portas para controle dos leds e dos botões e joystick
+	TRISFSET = 0x013F; //Set RF 1-5 e RF8 input
+	TRISACLR = 0x00FF; // Clear RA0 até RA7 para output
+	AD1PCFGSET = 0xFFFF; // transforma pinos analogicos em digitais
+	
 }
 
 uint8_t getPortB() {
@@ -20,5 +24,5 @@ uint8_t getXBitFromPortB(uint8_t x) {
 }
 
 void setXBitFromPortA(uint8_t x) {
-	PORTA = PORTB || (MASK_FIRST_BIT << x); // seta determinado bit no valor que quisermos com a mascara OR
+	PORTA = PORTA || (MASK_FIRST_BIT << x); // seta determinado bit no valor que quisermos com a mascara OR
 }
