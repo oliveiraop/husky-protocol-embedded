@@ -222,6 +222,8 @@ Message xToSend = NULL;
 static void prvMessageReceiver( void *pvParameters )
 {
 uint8_t ucInvalidMessage;
+uint8_t ucMsgLen;
+uint8_t *ucRcvdData;
 uint16_t usTesteChecksum;
 uint16_t usMessageType;
 uint32_t ulReceivedValue;
@@ -229,8 +231,49 @@ Message xMessageReceived;
 
 	for( ;; )
 	{
-		/* TODO: Coleta pacotes UART na fila e junta os fragmentos da mensagem. */
-		/* xSerialGetChar */
+		/* Adquire mutex para ler da fila de bytes recebidos. */
+		xSemaphoreTake( xMutexRcvdUART, portMAX_DELAY );
+		{
+			/* Itera pela mensagem ate preenchar o STX (tamanho fixo). */
+			for( int i = 0; i < 12; i++ )
+			{
+				xQueueReceive( xRcvdUART, &( ucRcvdData[i] ), 0 );
+			}
+
+			/* Itera pelo comprimento restante da mensagem preenchendo o payload. */
+			ucMsgLen = ucRcvdData[1];
+			for( int i = 12; i < ucMsgLen ; i++ )
+			{
+				xQueueReceive( xRcvdUART, &( ucRcvdData[i] ), 0 );
+			}
+			xQueueReceive( xRcvdUART, &( ucRcvdData[ucMsgLen] ), 0 );
+
+			xQueueReceive( xRcvdUART, &( ucRcvdData[ucMsgLen + 1] ), 0 );
+		}
+		xSemaphoreGive( xMutexRcvdUART );
+
+		/* Monta mensagem a partir dos dados coletados. */
+		xMessageReceived.soh = ucRcvdData[0];
+		xMessageReceived.length = ucRcvdData[1];
+		xMessageReceived.lengthCompliment = ucRcvdData[2];
+		xMessageReceived.version = ucRcvdData[3];
+		(uint8_t)(xMessageReceived.timeStamp) = ucRcvdData[4];
+		(uint8_t)(xMessageReceived.timeStamp >> 8) = ucRcvdData[5];
+		(uint8_t)(xMessageReceived.timeStamp >> 16) = ucRcvdData[6];
+		(uint8_t)(xMessageReceived.timeStamp >> 24) = ucRcvdData[7];
+		xMessageReceived.flags = ucRcvdData[8];
+		(uint8_t)(xMessageReceived.timeStamp) = ucRcvdData[9];
+		(uint8_t)(xMessageReceived.timeStamp >> 8) = ucRcvdData[10];
+		xMessageReceived.stx = ucRcvdData[11];
+
+		for( int i = 12; i < ucMsgLen ; i++ )
+		{
+			xMessageReceived.payload[i-12] = ucRcvdData[i];
+		}
+
+		(uint8_t)(xMessageReceived.checksum) = ucRcvdData[ucMsgLen];
+		(uint8_t)(xMessageReceived.checksum >> 8) = ucRcvdData[ucMsgLen];
+
 
 		/* Confere integridade da mensagem. */
 		usTesteChecksum = getChecksum(xMessageReceived);
