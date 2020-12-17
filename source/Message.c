@@ -58,10 +58,8 @@ void MessageSerialize(uint8_t *data, Message nova) {
 	for (int i = 12; i < 12 + nova.length ; i++) {
 		data[i] = nova.payload[i-12];
 	}
-	
+
 	data[12+nova.length] = (uint8_t)nova.checksum;
-	data[12+nova.length] = (uint8_t)(nova.checksum >> 8);
-	
-	
+	data[13+nova.length] = (uint8_t)(nova.checksum >> 8);
 
 }
