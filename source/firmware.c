@@ -14,15 +14,15 @@ void config() {
 	
 }
 
-uint8_t getPortB() {
-	return PORTB; // Exemplo de função do firmware que retorna o valor em byte do PORTB
+uint8_t getPortA() {
+	return PORTA; // Exemplo de função do firmware que retorna o valor em byte do PORTB
 }
 
 
-uint8_t getXBitFromPortB(uint8_t x) {
-	return (getPortB() >> x) && MASK_FIRST_BIT; // pegar um bit unico no PORTB por exemplo, saber se ele é 1 ou 0
+uint8_t getXBitFromPortF(uint8_t x) {
+	return (getPortF() >> x) && MASK_FIRST_BIT; // pegar um bit unico no PORTB por exemplo, saber se ele é 1 ou 0
 }
 
 void setXBitFromPortA(uint8_t x) {
-	PORTA = PORTA || (MASK_FIRST_BIT << x); // seta determinado bit no valor que quisermos com a mascara OR
+	PORTASET = (MASK_FIRST_BIT << x); // seta determinado bit no valor que quisermos com a mascara OR
 }

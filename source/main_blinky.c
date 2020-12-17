@@ -42,6 +42,7 @@
 #define	mainQUEUE_SEND_TASK_PRIORITY		( tskIDLE_PRIORITY )
 #define	mainUART_RECV_TASK_PRIORITY			( tskIDLE_PRIORITY + 2 )
 #define	mainUART_SEND_TASK_PRIORITY			( tskIDLE_PRIORITY + 1 )
+#define	mainUART_RECV_TASK_PRIORITY			( tskIDLE_PRIORITY + 3 )
 
 /* Prioridades das interrupcoes UART. */
 #define mainUART_INTERRUPT_PRIORITY			( configKERNEL_INTERRUPT_PRIORITY + 1 )
@@ -86,6 +87,8 @@ static void prvUartSender( void *pvParameters );
  * funcao de recebimento de mensagem.
  */
 static void prvUartReceiver( void *pvParameters );
+
+static void prvPooling( void *pvParameters );
 
 /*
  * Configura o modulo UART para funcionar como 115200 baud, 8 bits de data, sem
@@ -146,6 +149,9 @@ void main_husky( void )
 
 	/* Cria task do receptor UART. */
 	xTaskCreate( prvUartSender, "Tx_UART", configMINIMAL_STACK_SIZE, NULL, mainUART_SEND_TASK_PRIORITY, NULL );
+	
+	/* Cria task do pooling dos botões */
+	xTaskCreate( prvPooling, "Pooling", configMINIMAL_STACK_SIZE, NULL, mainUART_SEND_TASK_PRIORITY, NULL );
 
 	/* Start the tasks and timer running. */
 	vTaskStartScheduler();
@@ -158,6 +164,43 @@ void main_husky( void )
 	for( ;; );
 }
 /*-----------------------------------------------------------*/
+
+static void prvPooling( void *pvParameters ) {
+	Message xToSend;
+	uint8_t data[64];
+	
+	
+	for ( ;; ) {
+	
+		if (getXBitFromPortF(0)){
+			// RF0 Vou colocar virar pra direita
+			
+			setMessage(&xToSend, 
+		}
+		if (getXBitFromPortF(1)){
+			// RF1 Vou colocar virar pra esquerda
+			
+			
+		}
+		if (getXBitFromPortF(2)){
+			// RF2
+		}
+		if (getXBitFromPortF(3)){
+			// RF3
+		}
+		if (getXBitFromPortF(4)){
+			// RA4
+		}
+		if (getXBitFromPortF(5)){
+			// RA5
+		}
+		if (getXBitFromPortF(8)){
+			// RA6
+		}
+	}
+}
+
+
 
 static void prvMessageSender( void *pvParameters )
 {
