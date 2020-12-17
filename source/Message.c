@@ -35,7 +35,7 @@ void MessageSerializeToChecksum(uint8_t *data, Message nova) {
 	data[10] = (uint8_t)(nova.messageType >> 8);
 	data[11] =  nova.stx;
 
-	for (int i = 12; i < 12 + nova.length ; i++) {
+	for (int i = 12; i < nova.length ; i++) {
 		data[i] = nova.payload[i-12];
 	}
 
@@ -55,13 +55,11 @@ void MessageSerialize(uint8_t *data, Message nova) {
 	data[10] = (uint8_t)(nova.messageType >> 8);
 	data[11] =  nova.stx;
 
-	for (int i = 12; i < 12 + nova.length ; i++) {
+	for (int i = 12; i < nova.length; i++) {
 		data[i] = nova.payload[i-12];
 	}
-	
-	data[12+nova.length] = (uint8_t)nova.checksum;
-	data[12+nova.length] = (uint8_t)(nova.checksum >> 8);
-	
-	
+
+	data[nova.length] = (uint8_t)nova.checksum;
+	data[nova.length+1] = (uint8_t)(nova.checksum >> 8);
 
 }

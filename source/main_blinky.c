@@ -36,6 +36,7 @@
 
 /* Includes do projeto */
 #include "Message.h"
+#include "uart_isr.S"
 
 /* Priorities at which the tasks are created. */
 #define mainQUEUE_RECV_TASK_PRIORITY		( tskIDLE_PRIORITY )
@@ -77,25 +78,21 @@ static void prvMessageSender( void *pvParameters );
 static void prvMessageReceiver( void *pvParameters );
 
 /*
- * Acessa fila de bytes UART a enviar e transmite para os registradores de envio.
+ * Configura registradores para o modulo UART funcionar como 115200 baud, 8
+ * bits de data, sem paridade e 1 bit se parada.
  */
-static void prvUartSender( void *pvParameters );
-
-/*
- * Acessa registradores de recebimento UART conforme interrupção e transfere
- * para a fila de bytes recebidos. Quando detectar fim da mensagem chama a
- * funcao de recebimento de mensagem.
- */
-static void prvUartReceiver( void *pvParameters );
+static void prvUartInit( void *pvParameters );
 
 static void prvPooling( void *pvParameters );
 
 /*
- * Configura o modulo UART para funcionar como 115200 baud, 8 bits de data, sem
- * paridade e 1 bit se parada.
+ * Handler de interrupcao do UART, que le da fila de chars a enviar e escreve
+ * no buffer de envio, e le do buffer de recebimento para a fila de chars
+ * recebidos.
+ * Chama a funcao de receber mensagem quando detectar fim da
+ * mensagem recebida para construir mensagem completa.
  */
-
-static void prvUartInit( void *pvParameters );
+void __attribute__( (interrupt(mainUART_INTERRUPT_PRIORITY), vector(_UART2_VECTOR))) vU2InterruptWrapper( void );
 
 /*
  * Called by main() to create the simply blinky style application if
@@ -119,8 +116,8 @@ void main_husky( void )
 	/* Cria as filas para armazenamento das mensagens a ler e enviar. */
 	xSendMessage = xQueueCreate( mainQUEUE_LENGTH, sizeof( Message ) );
 	xRcvdMessage = xQueueCreate( mainQUEUE_LENGTH, sizeof( Message ) );
-	xSendUART = xQueueCreate( mainQUEUE_LENGTH, sizeof( Message ) );
-	xRcvdUART = xQueueCreate( mainQUEUE_LENGTH, sizeof( Message ) );
+	xSendUART = xQueueCreate( mainQUEUE_LENGTH, sizeof( uint8_t ) );
+	xRcvdUART = xQueueCreate( mainQUEUE_LENGTH, sizeof( uint8_t ) );
 	xAck = xQueueCreate( 1, sizeof( uint16_t ))
 
 	/* Cria mutexes de acesso às filas. */
@@ -152,6 +149,7 @@ void main_husky( void )
 	
 	/* Cria task do pooling dos botões */
 	xTaskCreate( prvPooling, "Pooling", configMINIMAL_STACK_SIZE, NULL, mainUART_SEND_TASK_PRIORITY, NULL );
+
 
 	/* Start the tasks and timer running. */
 	vTaskStartScheduler();
@@ -274,6 +272,8 @@ Message xToSend = NULL;
 static void prvMessageReceiver( void *pvParameters )
 {
 uint8_t ucInvalidMessage;
+uint8_t ucMsgLen;
+uint8_t *ucRcvdData;
 uint16_t usTesteChecksum;
 uint16_t usMessageType;
 uint32_t ulReceivedValue;
@@ -281,8 +281,49 @@ Message xMessageReceived;
 
 	for( ;; )
 	{
-		/* TODO: Coleta pacotes UART na fila e junta os fragmentos da mensagem. */
-		/* xSerialGetChar */
+		/* Adquire mutex para ler da fila de bytes recebidos. */
+		xSemaphoreTake( xMutexRcvdUART, portMAX_DELAY );
+		{
+			/* Itera pela mensagem ate preenchar o STX (tamanho fixo). */
+			for( int i = 0; i < 12; i++ )
+			{
+				xQueueReceive( xRcvdUART, &( ucRcvdData[i] ), 0 );
+			}
+
+			/* Itera pelo comprimento restante da mensagem preenchendo o payload. */
+			ucMsgLen = ucRcvdData[1];
+			for( int i = 12; i < ucMsgLen ; i++ )
+			{
+				xQueueReceive( xRcvdUART, &( ucRcvdData[i] ), 0 );
+			}
+			xQueueReceive( xRcvdUART, &( ucRcvdData[ucMsgLen] ), 0 );
+
+			xQueueReceive( xRcvdUART, &( ucRcvdData[ucMsgLen + 1] ), 0 );
+		}
+		xSemaphoreGive( xMutexRcvdUART );
+
+		/* Monta mensagem a partir dos dados coletados. */
+		xMessageReceived.soh = ucRcvdData[0];
+		xMessageReceived.length = ucRcvdData[1];
+		xMessageReceived.lengthCompliment = ucRcvdData[2];
+		xMessageReceived.version = ucRcvdData[3];
+		(uint8_t)(xMessageReceived.timeStamp) = ucRcvdData[4];
+		(uint8_t)(xMessageReceived.timeStamp >> 8) = ucRcvdData[5];
+		(uint8_t)(xMessageReceived.timeStamp >> 16) = ucRcvdData[6];
+		(uint8_t)(xMessageReceived.timeStamp >> 24) = ucRcvdData[7];
+		xMessageReceived.flags = ucRcvdData[8];
+		(uint8_t)(xMessageReceived.timeStamp) = ucRcvdData[9];
+		(uint8_t)(xMessageReceived.timeStamp >> 8) = ucRcvdData[10];
+		xMessageReceived.stx = ucRcvdData[11];
+
+		for( int i = 12; i < ucMsgLen ; i++ )
+		{
+			xMessageReceived.payload[i-12] = ucRcvdData[i];
+		}
+
+		(uint8_t)(xMessageReceived.checksum) = ucRcvdData[ucMsgLen];
+		(uint8_t)(xMessageReceived.checksum >> 8) = ucRcvdData[ucMsgLen];
+
 
 		/* Confere integridade da mensagem. */
 		usTesteChecksum = getChecksum(xMessageReceived);
@@ -336,16 +377,6 @@ Message xMessageReceived;
 }
 /*-----------------------------------------------------------*/
 
-static void prvUartReceiver( void *pvParameters )
-{
-}
-/*-----------------------------------------------------------*/
-
-static void prvUartSender( void *pvParameters )
-{
-}
-/*-----------------------------------------------------------*/
-
 static void prvUartInit( void *pvParameters )
 {
 uint16_t usBRG = NULL;								/* Valor baud UART a ser passado ao registrador. */
@@ -354,21 +385,92 @@ uint32_t ulWantedBaud = NULL;						/* Valor baud desejado. */
 	/* Calcula taxa a ser passada ao registrador U1BRG. */
 	ulWantedBaud = mainDESIRED_BAUD_RATE;			/* Indica taxa baud desejada. */
 	usBRG = (unsigned short)(( (float)configPERIPHERAL_CLOCK_HZ / ( (float)16 * (float)ulWantedBaud ) ) - (float)0.5);
-	U1BRGbits.BRG = usBRG;							/* Inicializa taxa de baud apropriada. */
+	U2BRGbits.BRG = usBRG;							/* Inicializa taxa de baud apropriada. */
 
-	U1MODEbits.PDSEL = 0;							/* 8 bits de dados, 0 de paridade. */
-	U1MODEbits.STSEL = 0;							/* 1 bit de parada. */
+	U2MODEbits.PDSEL = 0;							/* 8 bits de dados, 0 de paridade. */
+	U2MODEbits.STSEL = 0;							/* 1 bit de parada. */
 
-	IEC0bits.U1TXIE = 1;							/* Habilita interrupcao do transmissor. */
-	U1STAbits.UTXISEL0 = 0							/* Interrupcao gerada quando ha espaco no buffer. */
+	IEC1bits.U2TXIE = 1;							/* Habilita interrupcao do transmissor. */
+	U2STAbits.UTXISEL0 = 0							/* Interrupcao gerada quando ha espaco no buffer. */
 
-	IEC0bits.U1RXIE = 1;							/* Habilita interrupcao do receptor. */
-	U1STAbits.URXISEL = 0							/* Interrupcao gerada quando chega byte no buffer. */
+	IEC1bits.U2RXIE = 1;							/* Habilita interrupcao do receptor. */
+	U2STAbits.URXISEL = 0							/* Interrupcao gerada quando chega byte no buffer. */
 
-	IPC6bits.U1IP = mainUART_INTERRUPT_PRIORITY;	/* Define prioridade de interrupcao. */
-	IPC6bits.U1IS = mainUART_INTERRUPT_PRIORITY;	/* Define subprioridade de interrupcao. */
+	IPC8bits.U2IP = mainUART_INTERRUPT_PRIORITY;	/* Define prioridade de interrupcao. */
+	IPC8bits.U2IS = mainUART_INTERRUPT_PRIORITY;	/* Define subprioridade de interrupcao. */
 
-	U1MODEbits.ON = 1;								/* Habilita modulo UART. */
-	U1STAbits.URXEN = 1;							/* Habilita pino U1RX para leitura. */
-	U1STAbits.UTXEN = 1;							/* Habilita pino U1TX para escrita. */
+	U2MODEbits.ON = 1;								/* Habilita modulo UART. */
+	U2STAbits.URXEN = 1;							/* Habilita pino U1RX para leitura. */
+	U2STAbits.UTXEN = 1;							/* Habilita pino U1TX para escrita. */
+}
+/*-----------------------------------------------------------*/
+
+void vU2InterruptHandler( void )
+{
+/* Declared static to minimise stack use. */
+static char cChar;
+static uint8_t ucCharCount = 0;
+static uint8_t ucMsgEnd = 255;
+static portBASE_TYPE xHigherPriorityTaskWoken;
+
+	xHigherPriorityTaskWoken = pdFALSE;
+
+	/* Are any Rx interrupts pending? */
+	if( IFS1bits.U2RXIF == 1)
+	{
+		while( U2STAbits.RXDA )
+		{
+			/* Retrieve the received character and place it in the queue of
+			received characters. */
+			cChar = U2RXREG;
+			xQueueSendFromISR( xRcvdUART, &cChar, &xHigherPriorityTaskWoken );
+
+			/* Detecta se foi transmitido o começo de uma mensagem. */
+			if( cChar == 0xAA )
+			{
+				ucCharCount = 0;
+			}
+
+			/* Calcula fim da mensagem a partir do comprimento. */
+			if( ucCharCount == 1 )
+			{
+				ucMsgEnd = 12 + cChar;
+			}
+
+			/* Se tiver chegado ao fim da mensagem, ativa tarefa para montar ela. */
+			if( ucCharCount == ucMsgEnd )
+			{
+				prvMessageReceiver();
+				ucMsgEnd = 255;
+			}
+
+			/* Incrementa contador de bytes. */
+			ucCharCount += 1;
+		}
+
+		IFS1bits.U2RXIF = 0;
+	}
+
+	/* Are any Tx interrupts pending? */
+	if( IFS1bits.U2TXIF == 1 )
+	{
+		while( ( U2STAbits.UTXBF ) == 0 )
+		{
+			if( xQueueReceiveFromISR( xSendUART, &cChar, &xHigherPriorityTaskWoken ) == pdTRUE )
+			{
+				/* Send the next character queued for Tx. */
+				U2TXREG = cChar;
+			}
+			else
+			{
+				/* Queue empty, nothing to send. */
+				xTxHasEnded = pdTRUE;
+				break;
+			}
+		}
+		IFS1bits.U2TXIF = 0;
+	}
+
+	/* If sending or receiving necessitates a context switch, then switch now. */
+	portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
 }
