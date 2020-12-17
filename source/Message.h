@@ -20,7 +20,10 @@ void setMessage(Message *nova, uint8_t *payload, uint8_t length, uint16_t messag
 
 uint16_t getChecksum(Message nova);
 
+void MessageSerializeToChecksum(uint8_t *data, Message nova);
+
 void MessageSerialize(uint8_t *data, Message nova);
+
 
 enum MessageTypes
   {

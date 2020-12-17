@@ -152,7 +152,7 @@ Message xToSend = NULL;
 		ucBadChecksum = 1;
 		while(ucBadChecksum){
 			/* Serializa conteudo da mensagem em uma array. */
-			uint8_t ucMessageData[ 12 + xToSend.length ]:
+			uint8_t ucMessageData[ 14 + xToSend.length ]:
 			MessageSerialize( ucMessageData, xToSend );
 
 			/* TODO: Fragmentação e envio da mensagem em protocolos UART */
