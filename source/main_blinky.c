@@ -1,69 +1,17 @@
 /*
- * FreeRTOS V202011.00
- * Copyright (C) 2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ * Trabalho de ENGD33: Microcontrolador em Tempo Real para o Robô Husky
+ * Por Gustavo Mota, Joao Carneiro, Osmar Oliveira
  *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
+ * Nosso projeto consiste na troca de mensagens entre microcontrolador e a
+ * plataforma do Robô Husky por interface serial UART. Os pacotes recebidos e a
+ * enviar são salvos em filas por tasks responsáveis por montar e desmontar
+ * mensagens completas, salvas em outras filas. Outras tasks específicas para
+ * cada tipo de mensagem recebem as mensagens completas destinadas a elas ou
+ * enviam mensagens a serem encaminhadas para o serial.
  *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
- * http://www.FreeRTOS.org
- * http://aws.amazon.com/freertos
- *
- * 1 tab == 4 spaces!
- */
-
-/******************************************************************************
- * NOTE 1:  This project provides two demo applications.  A simple blinky style
- * project, and a more comprehensive test and demo application.  The
- * mainCREATE_SIMPLE_BLINKY_DEMO_ONLY setting in main.c is used to select
- * between the two.  See the notes on using mainCREATE_SIMPLE_BLINKY_DEMO_ONLY
- * in main.c.  This file implements the simply blinky style version.
- *
- * NOTE 2:  This file only contains the source code that is specific to the
- * basic demo.  Generic functions, such FreeRTOS hook functions, and functions
- * required to configure the hardware, are defined in main.c.
- ******************************************************************************
- *
- * main_blinky() creates one queue, two tasks, and one software timer.  It then
- * starts the scheduler.
- *
- * The Blinky Software Timer:
- * This demonstrates an auto-reload software timer.  The timer callback function
- * does nothing but toggle an LED.
- *
- * The Queue Send Task:
- * The queue send task is implemented by the prvQueueSendTask() function in
- * this file.  prvQueueSendTask() sits in a loop that causes it to repeatedly
- * block for 200 milliseconds, before sending the value 100 to the queue that
- * was created within main_blinky().  Once the value is sent, the task loops
- * back around to block for another 200 milliseconds.
- *
- * The Queue Receive Task:
- * The queue receive task is implemented by the prvQueueReceiveTask() function
- * in this file.  prvQueueReceiveTask() sits in a loop where it repeatedly
- * blocks on attempts to read data from the queue that was created within
- * main_blinky().  When data is received, the task checks the value of the
- * data, and if the value equals the expected 100, toggles the LED.  The 'block
- * time' parameter passed to the queue receive function specifies that the
- * task should be held in the Blocked state indefinitely to wait for data to
- * be available on the queue.  The queue receive task will only leave the
- * Blocked state when the queue send task writes to the queue.  As the queue
- * send task writes to the queue every 200 milliseconds, the queue receive
- * task leaves the Blocked state every 200 milliseconds, and therefore toggles
- * the LED every 200 milliseconds.
+ * Foram implementadas essas quatro tasks e filas, alem de uma fila exclusiva
+ * para as mensagens de Ack da plataforma. Alem disso, um firmware para tratar
+ * do pressionamento de botões também foi implementado.
  */
 
 /* Standard includes. */
@@ -75,31 +23,32 @@
 #include "queue.h"
 #include "timers.h"
 
-/* Standard demo includes. */
+/* demo application includes. */
 #include "partest.h"
+#include "blocktim.h"
+#include "flash_timer.h"
+#include "semtest.h"
+#include "genqtest.h"
+#include "qpeek.h"
+#include "lcd.h"
+#include "timertest.h"
+#include "intqueue.h"
 
 /* Includes do projeto */
 #include "Message.h"
 
 /* Priorities at which the tasks are created. */
-#define mainQUEUE_RECEIVE_TASK_PRIORITY		( tskIDLE_PRIORITY + 2 )
-#define	mainQUEUE_SEND_TASK_PRIORITY		( tskIDLE_PRIORITY + 1 )
+#define mainSEM_TEST_PRIORITY				( tskIDLE_PRIORITY + 1 )
+#define mainQUEUE_RECEIVE_TASK_PRIORITY		( tskIDLE_PRIORITY )
+#define	mainQUEUE_SEND_TASK_PRIORITY		( tskIDLE_PRIORITY )
 
-/* The rate at which data is sent to the queue.  The 200ms value is converted
-to ticks using the portTICK_PERIOD_MS constant. */
-#define mainQUEUE_SEND_FREQUENCY_MS			( 200 / portTICK_PERIOD_MS )
+/* Frequencia de acesso a filas, caso estejam vazias. O valor de 10ms e
+convertido para ticks utilizando a constante portTICK_PERIOD_MS. */
+#define mainQUEUE_ACCESS_FREQUENCY_MS		( 10 / portTICK_PERIOD_MS )
 
-/* Numero de itens que podem ser guardados na fila. 10 foi um numero escolhido
- * arbitrariamente para garantir certa margem de seguranca. */
-#define mainQUEUE_LENGTH					( 10 )
-
-/* The period of the blinky software timer.  The period is specified in ms and
-converted to ticks using the portTICK_PERIOD_MS constant. */
-#define mainBLINKY_TIMER_PERIOD				( 50 / portTICK_PERIOD_MS )
-
-/* The LED used by the communicating tasks and the blinky timer respectively. */
-#define mainTASKS_LED						( 0 )
-#define mainTIMER_LED						( 1 )
+/* Numero de itens que podem ser guardados na fila. 1000 foi um numero escolhido
+arbitrariamente para garantir certa margem de seguranca. */
+#define mainQUEUE_LENGTH					( 1000 )
 
 /* Misc. */
 #define mainDONT_BLOCK						( 0 )
@@ -110,68 +59,61 @@ converted to ticks using the portTICK_PERIOD_MS constant. */
 /*-----------------------------------------------------------*/
 
 /*
- * The tasks as described in the comments at the top of this file.
+ * Acessa fila de mensagens a enviar, pega uma mensagem, a divide em pacotes
+ * UART para envio serial e os envia para a fila de pacotes a enviar. Aguarda
+ * recebimento de ACK antes de enviar proxima mensagem.
  */
-static void prvQueueReceiveTask( void *pvParameters );
-static void prvQueueSendTask( void *pvParameters );
+static void prvSerialSender( void *pvParameters );
 
 /*
- * The callback function for the blinky software timer, as described at the top
- * of this file.
+ * Acessa fila de pacotes UART e monta mensagem completa, então analisa seu
+ * conteúdo e a encaminha para a tarefa responsavel pela acao necessaria.
  */
-static void prvBlinkyTimerCallback( TimerHandle_t xTimer );
+static void prvSerialReceiver( void *pvParameters );
 
 /*
  * Called by main() to create the simply blinky style application if
  * mainCREATE_SIMPLE_BLINKY_DEMO_ONLY is set to 1.
  */
-void main_blinky( void );
+void main_husky( void );
 
 /*-----------------------------------------------------------*/
 
 /* Inicializa handles para as estruturas criadas a seguir. */
 static QueueHandle_t xSendMessage = NULL;
 static QueueHandle_t xRcvdMessage = NULL;
+static QueueHandle_t xAck = NULL;
 
 /*-----------------------------------------------------------*/
 
-void main_blinky( void )
+void main_husky( void )
 {
 	TimerHandle_t xTimer;
 
-	/* Criar as estruturas:
-	 * Fila para mensagens a enviar; 
+	/* Cria as estruturas:
+	 * Fila para mensagens a enviar;
 	 * Fila para mensagens recebidas. */
 	xSendMessage = xQueueCreate( mainQUEUE_LENGTH, sizeof( Message ) );
 	xRcvdMessage = xQueueCreate( mainQUEUE_LENGTH, sizeof( Message ) );
+	xAck = xQueueCreate( 1, sizeof( uint16_t ))
+
+	/* Cria mutexes de acesso às estruturas. */
+	xMutexSend = xSemaphoreCreateMutex();
+	xMutexRcvd = xSemaphoreCreateMutex();
+	xMutexAck = xSemaphoreCreateMutex();
 
 	if( xSendMessage != NULL )
 	{
 		/* Cria task do receptor serial que salva mensagens recebidas em fila. */
 		xTaskCreate( prvSerialReceiver,						/* The function that implements the task. */
 					"Rx", 									/* The text name assigned to the task - for debug only as it is not used by the kernel. */
-					configMINIMAL_STACK_SIZE, 				/* The size of the stack to allocate to the task. */
-					NULL									/* The parameter passed to the task. */
+					configMINIMAL_STACK_SIZE,				/* The size of the stack to allocate to the task. */
+					NULL,									/* The parameter passed to the task. */
 					mainQUEUE_RECEIVE_TASK_PRIORITY, 		/* The priority assigned to the task. */
 					NULL );									/* The task handle is not required, so NULL is passed. */
 
 		/* Cria task do transmissor serial que salva mensagens a enviar em fila. */
-		xTaskCreate( prvSerialSender, "TX", configMINIMAL_STACK_SIZE, NULL, mainQUEUE_SEND_TASK_PRIORITY, NULL );
-
-		/* create the blinky software timer as described at the top of this
-		file. */
-		xtimer = xtimercreate( 	"blinky",					/* a text name, purely to help debugging. */
-								( mainblinky_timer_period ),/* the timer period. */
-								pdtrue,						/* this is an auto-reload timer, so xautoreload is set to pdtrue. */
-								( void * ) 0,				/* the id is not used, so can be set to anything. */
-								prvblinkytimercallback		/* the callback function that inspects the status of all the other tasks. */
-							);
-
-		if( xtimer != null )
-		{
-			xtimerstart( xtimer, maindont_block );
-		}
-
+		xTaskCreate( prvSerialSender, "Tx", configMINIMAL_STACK_SIZE, NULL, mainQUEUE_SEND_TASK_PRIORITY, NULL );
 
 		/* Start the tasks and timer running. */
 		vTaskStartScheduler();
@@ -188,83 +130,67 @@ void main_blinky( void )
 
 static void prvSerialSender( void *pvParameters )
 {
-TickType_t xNextWakeTime;
+uint8_t ucBadChecksum = 0;
+uint16_t usAckResponse = NULL;
 Message xToSend = NULL;
-uint16_t = usAckResponse;
-int badChecksum = 0;
-
-
-	/* Initialise xNextWakeTime - this only needs to be done once. */
-	xNextWakeTime = xTaskGetTickCount();
 
 	for( ;; )
 	{
-		/* Place this task in the blocked state until it is time to run again.
-		The block time is specified in ticks, the constant used converts ticks
-		to ms.  While in the Blocked state this task will not consume any CPU
-		time. */
-		vTaskDelayUntil( &xNextWakeTime, mainQUEUE_SEND_FREQUENCY_MS );
-
 		xToSend = NULL;
-		xQueueReceive(xSendMessage, &( xToSend ), 0);
-		
-		if (xToSend != NULL) {
-			// rotina para enviar o dado
-			// PEGA MUTEX SE NECESSARIO AQUI
-			badChecksum = 1;
-			while (badChecksum){
-				// Adicionar os valores nessa mesma ordem dentro das funcoes de envio para porta serial
-				xToSend.soh;
-				xToSend.length;
-				xToSend.lenghtCompliment;
-				xToSend.version;
-				(uint8_t)xToSend.timeStamp;	
-				(uint8_t)(xToSend.timeStamp >> 8);
-				(uint8_t)(xToSend.timeStamp >> 16);
-				(uint8_t)(xToSend.timeStamp >> 24);
-				xToSend.flags;
-				(uint8_t)xToSend.messageType;
-				(uint8_t)(xToSend.messageType >> 8);
-				xToSend.stx;
-			
-				for (int i = 0; i < xToSend.length ; i++) {
-					xToSend.payload[i];
+
+		while( xToSend == NULL)
+		{
+			/* Pega mutex para ler da pilha de mensagem a enviar */
+			xSemaphoreTake( xMutexSend, portMAX_DELAY );
+			{
+				xQueueReceive( xSendMessage, &( xToSend ), 0 );
+			}
+			xSemaphoreGive( xMutexSend );
+		}
+
+		/* Rotina para enviar o dado */
+		ucBadChecksum = 1;
+		while(ucBadChecksum){
+			/* Serializa conteudo da mensagem em uma array. */
+			uint8_t ucMessageData[ 12 + xToSend.length ]:
+			MessageSerialize( ucMessageData, xToSend );
+
+			/* TODO: Fragmentação e envio da mensagem em protocolos UART */
+
+			/* Pega mutex para acessar a pilha de ack e confirmar recebimento sem erro */
+			while( usAckResponse == NULL ) {
+				xSemaphoreTake( xMutexAck, portMAX_DELAY );
+				{
+					xQueueReceive( xAck, &( usAckResponse ), 0 );
 				}
-				(uint8_t)(xToSend.checksum >> 8);
-				(uint8_t)xToSend.checksum;
-				
-				// Entrega mutex de volta, mensagem enviada
-				// Aguarda ack
-				
-				xQueueReceive(xAck, &( xAckResponse ), portMAX_DELAY);
-				
-				// decodifica ack
-				// Fazer a��o para cada um desses caras 
-				//(podemos dar um jeito de fazer um log pra poder verificar se isso esta funcionando, ou ligar leds)
-				if (xAckResponse && mainFIRST_BIT_MASK) {
-					// Bad checksum -- Reenvia o dado
-				} else {
-					badChecksum = 1;
-				}
-				if ((xAckResponse >> 1) && mainFIRST_BIT_MASK) {
-					//Type not supported -- Verificar o que foi enviado
-				}
-				if ((xAckResponse >> 2) && mainFIRST_BIT_MASK) {
-					// Bad format -- Verificar o que foi enviado
-				}
-				if ((xAckResponse >> 3) && mainFIRST_BIT_MASK) {
-					// Out of Range
-				}
-				if ((xAckResponse >> 4) && mainFIRST_BIT_MASK) {
-					// No bandwidth
-				}
-				if ((xAckResponse >> 5) && mainFIRST_BIT_MASK) {
-					// Frequency too high
-				}
-				if ((xAckResponse >> 6) && mainFIRST_BIT_MASK) {
-					// Too many message types
-				}
-				
+				xSemaphoreGive( xMutexAck );
+			}
+
+			/* Decodificao ack */
+			/* TODO: Fazer ação para cada um desses caras */
+			if(usAckResponse && mainFIRST_BIT_MASK) {
+				/* Bad checksum -- Reenvia o dado */
+				ucBadChecksum = 1;
+			} else {
+				ucBadChecksum = 0;
+			}
+			if((usAckResponse >> 1) && mainFIRST_BIT_MASK) {
+				/* Type not supported -- Verificar o que foi enviado */
+			}
+			if((usAckResponse >> 2) && mainFIRST_BIT_MASK) {
+				/* Bad format -- Verificar o que foi enviado */
+			}
+			if((usAckResponse >> 3) && mainFIRST_BIT_MASK) {
+				/* Out of Range */
+			}
+			if((usAckResponse >> 4) && mainFIRST_BIT_MASK) {
+				/* No bandwidth */
+			}
+			if((usAckResponse >> 5) && mainFIRST_BIT_MASK) {
+				/* Frequency too high */
+			}
+			if((usAckResponse >> 6) && mainFIRST_BIT_MASK) {
+				/* Too many message types */
 			}
 		}
 	}
@@ -273,55 +199,52 @@ int badChecksum = 0;
 
 static void prvSerialReceiver( void *pvParameters )
 {
-unsigned long ulReceivedValue;
+uint8_t ucInvalidMessage;
+uint16_t usTesteChecksum;
+uint32_t ulReceivedValue;
 Message xMessageReceived;
-uint8_t xCharReceived;
-uint16_t xTesteChecksum;
 
 	for( ;; )
 	{
-		//xSerialGetChar
-		//Receber o char
-		
-		if (xMessageReceived.soh == xCharReceived) {
-			//xSerialGetChar
-			xMessageReceived.length = xCharReceived;
-			xMessageReceived.lengthCompliment = xCharReceived;
-			// Testa o complemento
-			if (xMessageReceived.length + xMessageReceived.lengthCompliment = 0xFFFF){
-				//xSerialGetChar
-				if (xMessageReceived.version == xCharReceived) {
-					// timestamp
-					//flags
-					//messageType (talvez pode ser colocado aqui o que vai ser feito por causa do ack, ou ficar de tarefa pra outra task)
-					// stx
-					if(xMessageReceived.stx == xCharReceived){
-						//receber payload definido na length (um for mesmo)
-						// Depois receber checksum e usar fun��o para testar com os dados que j� tem
-						xTesteChecksum = getChecksum(xMessageReceived);
-						if (xTesteChecksum == xMessageReceived.checksum) {
-							// Finaliza parser e envia a mensagem para ser utilizada em outra fila de task
-							if (xMessageReceived.messageType < 0x8000) {
-								// isso � um ack, colocar na fila de ack
-								xQueueSend(xAck, (void) &xMessageReceived, 0 ); // enviar pra fila de Ack
-							} else {
-								//Se n�o for vai ser um dado que pode ser colocado em uma fila para ser utilizado por outra task
-							}
-							
-						} //else aqui para caso checksum deu falha;
-					} // else aqui caso o stx venha diferente do esperado
-				} // else aqui de erro caso a versao esteja incorreta
-			} // else aqui caso o tamanho esteja incorreto
+		/* TODO: Coleta pacotes UART na fila e junta os fragmentos da mensagem. */
+		/* xSerialGetChar */
+
+		/* Confere integridade da mensagem. */
+		usTesteChecksum = getChecksum(xMessageReceived);
+		if( xMessageReceived.soh != 0xAA )
+			ucInvalidMessage = 1;
+		else if( xMessageReceived.lengthCompliment != 0xFF - xMessageReceived.length )
+			ucInvalidMessage = 1;
+		else if( xMessageReceived.version != 0x01 )
+			ucInvalidMessage = 1;
+		else if( xMessageReceived.stx != 0x55 )
+			ucInvalidMessage = 1;
+		else if( xMessageReceived.checksum != usTesteChecksum )
+			ucInvalidMessage = 1;
+		else
+			ucInvalidMessage = 0;
+
+		/* TODO: Age sobre recebimento de mensagem inválida enviada pela plataforma. */
+		if( ucInvalidMessage )
+
+		/* TODO: Apura tipo da mensagem recebida e trata ou encaminha para a task necessária. */
+		switch( xMessageReceived.messageType )
+		{
+			/* Caso seja um Ack, por exemplo: */
+			case xMessageReceived.messageType < 0x8000:
+				/* Coloca na fila de ack. */
+				xSemaphoreTake( xMutexAck, portMAX_DELAY );
+				{
+					/* Envia pra fila de Ack */
+					xQueueSend(xAck, (void) &xMessageReceived, 0 );
+				}
+				xSemaphoreGive( xMutexAck );
+
+				/* Chama tarefa específica para o tipo de mensagem. */
+				/* TODO */
+
+			default:
+			}
 		}
 	}
 }
-/*-----------------------------------------------------------*/
-
-static void prvBlinkyTimerCallback( TimerHandle_t xTimer )
-{
-	/* This function is called when the blinky software time expires.  All the
-	function does is toggle the LED.  LED mainTIMER_LED should therefore toggle
-	with the period set by mainBLINKY_TIMER_PERIOD. */
-	vParTestToggleLED( mainTIMER_LED );
-}
-

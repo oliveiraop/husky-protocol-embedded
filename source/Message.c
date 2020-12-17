@@ -1,6 +1,6 @@
 #include "Message.h"
+#include "crc.h"
 #include <stdint.h>
-
 
 void setMessage(Message *nova, uint8_t *payload, uint8_t length, uint16_t messageType, uint32_t timeStamp, uint8_t flags) {
 	Message nova;
@@ -11,9 +11,7 @@ void setMessage(Message *nova, uint8_t *payload, uint8_t length, uint16_t messag
 	nova->messageType = messageType;
 	*nova->payload = *payload;
 	nova->checksum = getChecksum(nova);
-	
 }
-
 
 uint16_t getChecksum(Message nova) {
 	uint8_t data[76];
@@ -40,12 +38,5 @@ void MessageSerialize(uint8_t *data, Message nova) {
 	for (int i = 12; i < 12 + nova.length ; i++) {
 		data[i] = nova.payload[i-12];
 	}
-	
+
 }
-
-
-
-
-
-
-

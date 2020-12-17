@@ -1,7 +1,7 @@
-#ifndef _MESSAGE_
-#define _MESSAGE_
+#ifndef _MESSAGE_H_
+#define _MESSAGE_H_
 
-#define 
+#include <stdint.h>
 
 typedef struct {
 	uint8_t const soh = 0xAA;
@@ -12,12 +12,15 @@ typedef struct {
 	uint8_t flags;
 	uint16_t messageType;
 	uint8_t const stx = 0x55;
-	uint8_t payload[64]; // coloquei um valor fixo que seria um valor máximo para ser utilizado, pois o malloc nao funciona bem no pic32
+	uint8_t payload[64]; // coloquei um valor fixo que seria um valor mï¿½ximo para ser utilizado, pois o malloc nao funciona bem no pic32
 	uint16_t checksum;
 } Message;
 
-// tem que colocar a header das funções aqui ainda
-	
+void setMessage(Message *nova, uint8_t *payload, uint8_t length, uint16_t messageType, uint32_t timeStamp, uint8_t flags);
+
+uint16_t getChecksum(Message nova);
+
+void MessageSerialize(uint8_t *data, Message nova);
 
 enum MessageTypes
   {
@@ -124,20 +127,4 @@ enum MessageTypes
     DATA_MAGNETOMETER_RAW = 0xA116
   }; // enum MessageTypes
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#endif _MESSAGE_
+#endif _MESSAGE_H_

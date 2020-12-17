@@ -74,10 +74,10 @@ or 0 to run the more comprehensive test and demo application. */
 static void prvSetupHardware( void );
 
 /*
- * main_blinky() is used when mainCREATE_SIMPLE_BLINKY_DEMO_ONLY is set to 1.
+ * main_husky() is used when mainCREATE_SIMPLE_BLINKY_DEMO_ONLY is set to 1.
  * main_full() is used when mainCREATE_SIMPLE_BLINKY_DEMO_ONLY is set to 0.
  */
-extern void main_blinky( void );
+extern void main_husky( void );
 extern void main_full( void );
 
 /*-----------------------------------------------------------*/
@@ -94,7 +94,7 @@ int main( void )
 	of this file. */
 	#if mainCREATE_SIMPLE_BLINKY_DEMO_ONLY == 1
 	{
-		main_blinky();
+		main_husky();
 	}
 	#else
 	{
@@ -158,7 +158,7 @@ void vApplicationStackOverflowHook( TaskHandle_t pxTask, char *pcTaskName )
 	( void ) pxTask;
 
 	/* Run time task stack overflow checking is performed if
-	configCHECK_FOR_STACK_OVERFLOW is defined to 1 or 2.  This hook	function is 
+	configCHECK_FOR_STACK_OVERFLOW is defined to 1 or 2.  This hook	function is
 	called if a task stack overflow is detected.  Note the system/interrupt
 	stack is not checked. */
 	taskDISABLE_INTERRUPTS();
@@ -178,7 +178,7 @@ void vApplicationTickHook( void )
 
 void _general_exception_handler( unsigned long ulCause, unsigned long ulStatus )
 {
-	/* This overrides the definition provided by the kernel.  Other exceptions 
+	/* This overrides the definition provided by the kernel.  Other exceptions
 	should be handled here. */
 	for( ;; );
 }
