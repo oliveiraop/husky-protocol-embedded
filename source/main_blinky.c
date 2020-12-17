@@ -146,7 +146,7 @@ void main_husky( void )
 
 	/* Cria task do receptor UART. */
 	xTaskCreate( prvUartSender, "Tx_UART", configMINIMAL_STACK_SIZE, NULL, mainUART_SEND_TASK_PRIORITY, NULL );
-	
+
 	/* Cria task do pooling dos botões */
 	xTaskCreate( prvPooling, "Pooling", configMINIMAL_STACK_SIZE, NULL, mainUART_SEND_TASK_PRIORITY, NULL );
 
@@ -166,19 +166,19 @@ void main_husky( void )
 static void prvPooling( void *pvParameters ) {
 	Message xToSend;
 	uint8_t data[64];
-	
-	
+
+
 	for ( ;; ) {
-	
+
 		if (getXBitFromPortF(0)){
 			// RF0 Vou colocar virar pra direita
-			
-			setMessage(&xToSend, 
+
+			setMessage(&xToSend,
 		}
 		if (getXBitFromPortF(1)){
 			// RF1 Vou colocar virar pra esquerda
-			
-			
+
+
 		}
 		if (getXBitFromPortF(2)){
 			// RF2
@@ -199,10 +199,10 @@ static void prvPooling( void *pvParameters ) {
 }
 
 
-
 static void prvMessageSender( void *pvParameters )
 {
 uint8_t ucBadChecksum = 0;
+uint8_t ucMsgLen = 0;
 uint16_t usAckResponse = NULL;
 Message xToSend = NULL;
 
@@ -224,10 +224,20 @@ Message xToSend = NULL;
 		ucBadChecksum = 1;
 		while(ucBadChecksum){
 			/* Serializa conteudo da mensagem em uma array. */
-			uint8_t ucMessageData[ 14 + xToSend.length ]:
+			ucMsgLen = xToSend.length;
+			uint8_t ucMessageData[ ucMsgLen + 2 ]:
 			MessageSerialize( ucMessageData, xToSend );
 
-			/* TODO: Fragmentação e envio da mensagem em protocolos UART */
+			/* Adquire mutex para escrever na fila de envio do UART */
+			xSemaphoreTake( xMutexSendUART, portMAX_DELAY );
+			{
+				/* Envia bytes de mensagem serializada para o UART. */
+				for( int i = 0; i < ucMsgLen + 2; i++ )
+				{
+					xQueueSend(xSendUART, (void) &ucMessageData[i], 0 );
+				}
+			}
+			xSemaphoreGive( xMutexSendUART );
 
 			/* Pega mutex para acessar a pilha de ack e confirmar recebimento sem erro */
 			while( usAckResponse == NULL ) {
