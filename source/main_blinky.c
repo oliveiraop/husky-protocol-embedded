@@ -36,7 +36,7 @@
 
 /* Includes do projeto */
 #include "Message.h"
-#include "uart_isr.S"
+#include "uart_isr.h"
 
 /* Priorities at which the tasks are created. */
 #define mainQUEUE_RECV_TASK_PRIORITY		( tskIDLE_PRIORITY )
